@@ -1,0 +1,11 @@
+pandas
+scikit-learn
+joblib
+matplotlib
+seaborn
+jupyter
+transformers
+datasets
+accelerate
+evaluate
+torch

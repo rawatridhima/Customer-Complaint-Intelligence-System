@@ -128,3 +128,17 @@ Do not start the LLM layer until the classifier baseline is measurable.
 - `docs/LLD.md` — Low Level Design
 
 Both are living documents. If you change an API contract, a database column, or a class signature, update the LLD in the same PR.
+
+
+## ML results
+
+Dataset: CFPB complaints with narratives, May 2017 – May 2019 (archived snapshot;
+CFPB stopped publishing narratives in Aug 2026). 60,000 complaints, 10,000 per
+category, 70/15/15 stratified split, seed 42. Label mapping v2.
+
+| Model | Val macro-F1 | Test macro-F1 |
+|---|---|---|
+| TF-IDF + Logistic Regression (baseline) | 0.848 | 0.849 |
+
+Weakest class: credit_report_dispute (F1 0.719), mostly confused with
+report_misuse and debt_collection.
