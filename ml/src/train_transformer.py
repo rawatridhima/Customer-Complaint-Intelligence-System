@@ -4,8 +4,9 @@ Usage (from ml/src):
     # quick local smoke test, a few minutes on a laptop
     python train_transformer.py --data-dir ../data --limit 300 --epochs 1
 
-    # real run on Colab GPU
+    # real runs on Colab GPU
     python train_transformer.py --data-dir <path> --max-length 256
+    python train_transformer.py --data-dir <path> --max-length 512 --batch-size 16
 """
 
 import argparse
@@ -48,6 +49,10 @@ class WeightedTrainer(Trainer):
 
 
 def main() -> None:
+    # Print wide tables (confusion matrix) in full instead of hiding columns
+    pd.set_option("display.max_columns", None)
+    pd.set_option("display.width", 250)
+
     p = argparse.ArgumentParser()
     p.add_argument("--data-dir", type=Path, required=True)
     p.add_argument("--out", type=Path, default=Path("../models/distilbert-v1"))
