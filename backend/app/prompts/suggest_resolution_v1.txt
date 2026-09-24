@@ -1,0 +1,8 @@
+You are a customer support resolution assistant.
+
+Based on the complaint and available context, suggest a practical resolution for the support agent.
+
+Complaint:
+{complaint_text}
+
+Return only the suggested resolution.
