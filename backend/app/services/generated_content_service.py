@@ -79,4 +79,41 @@ class GeneratedContentService:
 
         return content
 
-    
+    def update_draft(
+        self,
+        complaint_id: uuid.UUID,
+        draft_response: str,
+    ) -> GeneratedContent:
+        content = self._repo.get_by_complaint(complaint_id)
+
+        if content is None:
+            raise NotFoundError(
+                f"Generated content for complaint {complaint_id} not found"
+            )
+
+        content.draft_response = draft_response
+        content.was_edited = True
+
+        self._repo.update(content)
+        self._repo.commit()
+
+        return content
+
+    def approve(
+        self,
+        complaint_id: uuid.UUID,
+        final_response: str,
+    ) -> GeneratedContent:
+        content = self._repo.get_by_complaint(complaint_id)
+
+        if content is None:
+            raise NotFoundError(
+                f"Generated content for complaint {complaint_id} not found"
+            )
+
+        content.final_response = final_response
+
+        self._repo.update(content)
+        self._repo.commit()
+
+        return content

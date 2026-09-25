@@ -2,7 +2,11 @@ import uuid
 
 from fastapi import APIRouter, Depends, Query, status
 
-from app.api.v1.deps import get_complaint_service
+from app.api.v1.deps import (
+    get_complaint_service,
+    get_generated_content_service,
+    get_prediction_service,
+)
 from app.models.enums import AnalysisStatus, Category, ComplaintStatus, Priority
 from app.schemas.complaint import (
     ComplaintCreate,
@@ -10,9 +14,17 @@ from app.schemas.complaint import (
     ComplaintDetail,
     ComplaintSummary,
     Paginated,
+    PredictionOut,
     StatusUpdate,
 )
+from app.schemas.generated_content import (
+    GeneratedContentApprove,
+    GeneratedContentOut,
+    GeneratedContentUpdate,
+)
+from app.services.generated_content_service import GeneratedContentService
 from app.services.complaint_service import ComplaintService
+from app.services.prediction_service import PredictionService
 
 router = APIRouter(prefix="/complaints", tags=["complaints"])
 
@@ -61,3 +73,73 @@ def update_status(
     service: ComplaintService = Depends(get_complaint_service),
 ):
     return service.update_status(complaint_id, payload.status)
+
+
+@router.get(
+    "/{complaint_id}/prediction",
+    response_model=PredictionOut,
+)
+def get_prediction(
+    complaint_id: uuid.UUID,
+    service: PredictionService = Depends(get_prediction_service),
+):
+    return service.get_by_complaint(complaint_id)
+
+
+@router.post(
+    "/{complaint_id}/generated-content",
+    response_model=GeneratedContentOut,
+)
+def generate_content(
+    complaint_id: uuid.UUID,
+    service: GeneratedContentService = Depends(
+        get_generated_content_service
+    ),
+):
+    return service.generate(complaint_id)
+
+
+@router.get(
+    "/{complaint_id}/generated-content",
+    response_model=GeneratedContentOut,
+)
+def get_generated_content(
+    complaint_id: uuid.UUID,
+    service: GeneratedContentService = Depends(
+        get_generated_content_service
+    ),
+):
+    return service.get(complaint_id)
+
+@router.patch(
+    "/{complaint_id}/generated-content",
+    response_model=GeneratedContentOut,
+)
+def update_generated_content(
+    complaint_id: uuid.UUID,
+    payload: GeneratedContentUpdate,
+    service: GeneratedContentService = Depends(
+        get_generated_content_service
+    ),
+):
+    return service.update_draft(
+        complaint_id=complaint_id,
+        draft_response=payload.draft_response,
+    )
+
+
+@router.post(
+    "/{complaint_id}/generated-content/approve",
+    response_model=GeneratedContentOut,
+)
+def approve_generated_content(
+    complaint_id: uuid.UUID,
+    payload: GeneratedContentApprove,
+    service: GeneratedContentService = Depends(
+        get_generated_content_service
+    ),
+):
+    return service.approve(
+        complaint_id=complaint_id,
+        final_response=payload.final_response,
+    )

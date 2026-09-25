@@ -39,5 +39,23 @@ class KnowledgeArticleRepository:
 
         return list(self._db.execute(stmt).scalars().all())
 
+    def similarity_search(
+        self,
+        query_embedding: list[float],
+        limit: int = 5,
+    ) -> list[KnowledgeArticle]:
+        stmt = (
+            select(KnowledgeArticle)
+            .where(KnowledgeArticle.embedding.is_not(None))
+            .order_by(
+                KnowledgeArticle.embedding.cosine_distance(
+                    query_embedding
+                )
+            )
+            .limit(limit)
+        )
+
+        return list(self._db.execute(stmt).scalars().all())
+
     def commit(self) -> None:
         self._db.commit()
