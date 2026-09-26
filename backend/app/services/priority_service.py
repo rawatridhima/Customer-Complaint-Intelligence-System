@@ -38,12 +38,12 @@ class PriorityService:
     """FR-14 to FR-17. Explainable by design. Never a learned model."""
 
     CATEGORY_SEVERITY: dict[Category, float] = {
-        Category.BILLING: 0.70,
-        Category.TECHNICAL: 0.65,
-        Category.PRODUCT_DEFECT: 0.80,
-        Category.REFUND: 0.75,
-        Category.DELIVERY: 0.50,
-        Category.SERVICE_QUALITY: 0.45,
+        Category.REPORT_MISUSE: 0.85,          # unauthorised pulls; often identity fraud
+        Category.MORTGAGE: 0.80,               # foreclosure risk, home at stake
+        Category.DEBT_COLLECTION: 0.70,        # harassment, wage garnishment
+        Category.CREDIT_REPORT_DISPUTE: 0.60,  # blocks loans, but slower harm
+        Category.CONSUMER_LOANS: 0.55,
+        Category.CARDS_AND_ACCOUNTS: 0.45,
     }
 
     URGENCY_TERMS: frozenset[str] = frozenset({
