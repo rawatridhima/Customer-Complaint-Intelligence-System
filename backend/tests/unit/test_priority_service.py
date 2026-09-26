@@ -17,8 +17,8 @@ def test_weights_must_sum_to_one():
 
 def test_score_is_deterministic(service):
     args = dict(
-        text="urgent billing error",
-        category=Category.BILLING,
+        text="urgent billing error on my credit card",
+        category=Category.CARDS_AND_ACCOUNTS,
         sentiment_label=Sentiment.NEGATIVE,
         sentiment_score=0.9,
         repeat_count=1,
@@ -29,7 +29,7 @@ def test_score_is_deterministic(service):
 def test_score_stays_in_range(service):
     result = service.compute(
         text="urgent emergency fraud legal lawyer escalate immediately",
-        category=Category.PRODUCT_DEFECT,
+        category=Category.REPORT_MISUSE,
         sentiment_label=Sentiment.NEGATIVE,
         sentiment_score=1.0,
         repeat_count=10,
@@ -40,7 +40,7 @@ def test_score_stays_in_range(service):
 def test_positive_sentiment_contributes_nothing(service):
     result = service.compute(
         text="thanks for the help",
-        category=Category.DELIVERY,
+        category=Category.CONSUMER_LOANS,
         sentiment_label=Sentiment.POSITIVE,
         sentiment_score=0.95,
         repeat_count=0,
@@ -60,7 +60,7 @@ def test_bucket_boundaries(score, expected):
 def test_breakdown_sums_to_score(service):
     result = service.compute(
         text="charged twice, still waiting",
-        category=Category.BILLING,
+        category=Category.CARDS_AND_ACCOUNTS,
         sentiment_label=Sentiment.NEGATIVE,
         sentiment_score=0.8,
         repeat_count=1,

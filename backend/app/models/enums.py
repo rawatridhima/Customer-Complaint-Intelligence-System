@@ -23,12 +23,12 @@ class AnalysisStatus(StrEnum):
 
 
 class Category(StrEnum):
-    BILLING = "billing"
-    DELIVERY = "delivery"
-    PRODUCT_DEFECT = "product_defect"
-    SERVICE_QUALITY = "service_quality"
-    TECHNICAL = "technical"
-    REFUND = "refund"
+    CREDIT_REPORT_DISPUTE = "credit_report_dispute"
+    REPORT_MISUSE = "report_misuse"
+    DEBT_COLLECTION = "debt_collection"
+    CARDS_AND_ACCOUNTS = "cards_and_accounts"
+    MORTGAGE = "mortgage"
+    CONSUMER_LOANS = "consumer_loans"
 
 
 class Sentiment(StrEnum):

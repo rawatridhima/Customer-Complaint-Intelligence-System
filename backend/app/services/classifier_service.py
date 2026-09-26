@@ -28,12 +28,12 @@ class SentimentResult:
 
 
 _KEYWORD_RULES: list[tuple[Category, tuple[str, ...]]] = [
-    (Category.BILLING, ("charge", "charged", "bill", "payment", "invoice", "emi")),
-    (Category.DELIVERY, ("delivery", "shipped", "courier", "parcel", "late", "tracking")),
-    (Category.REFUND, ("refund", "return", "money back", "exchange")),
-    (Category.PRODUCT_DEFECT, ("broken", "damaged", "defective", "faulty", "not working")),
-    (Category.TECHNICAL, ("app", "website", "login", "crash", "error", "otp")),
-    (Category.SERVICE_QUALITY, ("rude", "agent", "waiting", "no response", "support")),
+    (Category.REPORT_MISUSE, ("inquiry", "inquiries", "hard pull", "unauthorized", "authorize", "breach")),
+    (Category.CREDIT_REPORT_DISPUTE, ("credit report", "equifax", "experian", "transunion", "dispute", "bureau")),
+    (Category.DEBT_COLLECTION, ("collection", "collector", "debt", "validation", "owe")),
+    (Category.MORTGAGE, ("mortgage", "escrow", "foreclosure", "modification", "servicer")),
+    (Category.CONSUMER_LOANS, ("student loan", "navient", "auto loan", "payday", "personal loan")),
+    (Category.CARDS_AND_ACCOUNTS, ("credit card", "checking", "savings", "overdraft", "atm", "deposit")),
 ]
 
 _NEGATIVE_TERMS = ("terrible", "worst", "angry", "furious", "disgusted", "unacceptable",
@@ -60,7 +60,7 @@ class ClassifierService:
             category = max(scores, key=scores.get)
             confidence = min(0.55 + 0.12 * scores[category], 0.97)
         else:
-            category = Category.SERVICE_QUALITY
+            category = Category.CREDIT_REPORT_DISPUTE
             confidence = round(random.uniform(0.40, 0.60), 3)
 
         return ClassificationResult(
