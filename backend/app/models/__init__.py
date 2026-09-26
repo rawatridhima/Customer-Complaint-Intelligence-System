@@ -1,11 +1,19 @@
-"""Import the model modules for their side effect of registering tables.
+"""Import model modules so SQLAlchemy registers all tables."""
 
-Do not import this package from enums-only consumers; import
-app.models.enums directly so unit tests stay driver-free.
-"""
-
+from app.models.audit_log import AuditLog
 from app.models.complaint import Complaint
+from app.models.feedback import Feedback
+from app.models.generated_content import GeneratedContent
+from app.models.knowledge_article import KnowledgeArticle
 from app.models.prediction import Prediction
 from app.models.user import User
 
-__all__ = ["Complaint", "Prediction", "User"]
+__all__ = [
+    "AuditLog",
+    "Complaint",
+    "Feedback",
+    "GeneratedContent",
+    "KnowledgeArticle",
+    "Prediction",
+    "User",
+]

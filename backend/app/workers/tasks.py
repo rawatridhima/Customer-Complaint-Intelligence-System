@@ -1,6 +1,6 @@
 import logging
 import uuid
-
+from app.services.generated_content_service import GeneratedContentService
 from app.core.database import session_scope
 from app.core.logging import log_event
 from app.models.enums import AnalysisStatus
@@ -11,7 +11,6 @@ from app.services.priority_service import PriorityService
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
-
 
 @celery_app.task(
     name="tasks.analyse_complaint",
@@ -24,18 +23,21 @@ logger = logging.getLogger(__name__)
     soft_time_limit=45,
 )
 def analyse_complaint(self, complaint_id: str) -> None:
-    """ML stage only in this skeleton. The LLM stage is added in week 7.
+    """Run ML analysis and enqueue the independent LLM stage."""
 
-    Stage isolation matters: if the LLM stage is added and fails, the
-    complaint must still be fully triageable from this stage alone (NFR-07).
-    """
     cid = uuid.UUID(complaint_id)
+
+    analysis_succeeded = False
 
     with session_scope() as db:
         repo = ComplaintRepository(db)
         complaint = repo.get(cid)
+
         if complaint is None:
-            logger.warning("complaint %s vanished before analysis", complaint_id)
+            logger.warning(
+                "complaint %s vanished before analysis",
+                complaint_id,
+            )
             return
 
         complaint.analysis_status = AnalysisStatus.PROCESSING
@@ -44,7 +46,10 @@ def analyse_complaint(self, complaint_id: str) -> None:
         try:
             cls = classifier.predict(complaint.redacted_text)
             snt = sentiment.predict(complaint.redacted_text)
-            repeat_count = repo.count_prior_complaints(complaint.customer_ref)
+
+            repeat_count = repo.count_prior_complaints(
+                complaint.customer_ref
+            )
 
             pri = PriorityService().compute(
                 text=complaint.redacted_text,
@@ -54,24 +59,28 @@ def analyse_complaint(self, complaint_id: str) -> None:
                 repeat_count=max(repeat_count, 0),
             )
 
-            repo.add_prediction(Prediction(
-                complaint_id=cid,
-                category=cls.category,
-                category_confidence=cls.confidence,
-                sentiment_label=snt.label,
-                sentiment_score=round(snt.score, 3),
-                priority_score=pri.score,
-                priority_bucket=pri.bucket,
-                priority_breakdown=pri.breakdown,
-                needs_review=cls.needs_review,
-                model_version=cls.model_version,
-                inference_ms=cls.inference_ms,
-            ))
+            repo.add_prediction(
+                Prediction(
+                    complaint_id=cid,
+                    category=cls.category,
+                    category_confidence=cls.confidence,
+                    sentiment_label=snt.label,
+                    sentiment_score=round(snt.score, 3),
+                    priority_score=pri.score,
+                    priority_bucket=pri.bucket,
+                    priority_breakdown=pri.breakdown,
+                    needs_review=cls.needs_review,
+                    model_version=cls.model_version,
+                    inference_ms=cls.inference_ms,
+                )
+            )
 
             complaint.analysis_status = AnalysisStatus.COMPLETED
+            analysis_succeeded = True
 
             log_event(
-                logger, "analysis_complete",
+                logger,
+                "analysis_complete",
                 complaint_id=complaint_id,
                 stage="ml_inference",
                 category=cls.category,
@@ -82,5 +91,53 @@ def analyse_complaint(self, complaint_id: str) -> None:
 
         except Exception as exc:
             complaint.analysis_status = AnalysisStatus.FAILED
-            logger.exception("analysis failed for %s", complaint_id)
+            logger.exception(
+                "analysis failed for %s",
+                complaint_id,
+            )
             raise self.retry(exc=exc) from exc
+
+    # Transaction is committed before LLM task is queued.
+    if analysis_succeeded:
+        generate_complaint_content.delay(complaint_id)
+
+
+@celery_app.task(
+    name="tasks.generate_complaint_content",
+    bind=True,
+    max_retries=3,
+    retry_backoff=True,
+    retry_jitter=True,
+    acks_late=True,
+    time_limit=90,
+    soft_time_limit=75,
+)
+def generate_complaint_content(
+    self,
+    complaint_id: str,
+) -> None:
+    """Run the independent LLM generation stage."""
+
+    cid = uuid.UUID(complaint_id)
+
+    try:
+        with session_scope() as db:
+            service = GeneratedContentService(db)
+            service.generate(cid)
+
+            log_event(
+                logger,
+                "llm_generation_complete",
+                complaint_id=complaint_id,
+                stage="llm_generation",
+            )
+
+    except Exception as exc:
+        logger.exception(
+            "LLM generation failed for %s",
+            complaint_id,
+        )
+
+        # ML prediction is already complete, so LLM failure
+        # must not mark the complaint analysis as failed.
+        raise self.retry(exc=exc) from exc
