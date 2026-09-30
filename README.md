@@ -2,7 +2,7 @@
 
 Minor project, B.Tech. An AI system that classifies, prioritises, and drafts responses to customer complaints, with a dashboard for support teams.
 
-Intake, storage, classification, sentiment, priority scoring and the dashboard work end to end. The LLM stage is stubbed behind a fixed interface. The ML services fall back to rule-based stubs when the model files are absent, so the application runs without them.
+Intake, storage, classification, sentiment, priority scoring, AI-drafted replies and the dashboard work end to end. Without an LLM configured, every complaint gets a template reply flagged for manual handling. The ML services fall back to rule-based stubs when the model files are absent, so the application runs without them.
 
 ---
 
@@ -124,6 +124,62 @@ A red banner appears at the top of every page when a new P0 complaint arrives
 
 ---
 
+## AI-drafted replies (LLM stage)
+
+After a complaint is classified, the worker asks an LLM for three things:
+
+- a **summary** of at most two sentences and 60 words (FR-19)
+- a **suggested resolution**, grounded in the knowledge base articles for the
+  complaint's category, with the articles it used listed underneath (FR-20)
+- a **draft reply** in a tone picked from sentiment and priority: *urgent* for
+  P0, *empathetic* for negative, *professional* otherwise (FR-21)
+
+The agent can edit the reply, regenerate it in another tone, and approve it.
+Nothing counts as sent until it is approved, and approval locks it (FR-22).
+The generated draft is kept next to the edited version (FR-23).
+
+### Setting up a provider
+
+Set these in `.env`, then `docker compose up`. Any one of:
+
+| Provider | Settings |
+|---|---|
+| Claude | `LLM_PROVIDER=anthropic` `LLM_MODEL=claude-haiku-4-5` `LLM_API_KEY=...` |
+| Gemini (free tier) | `LLM_PROVIDER=openai` `LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai` `LLM_MODEL=<model id>` `LLM_API_KEY=...` |
+| Groq (free tier) | `LLM_PROVIDER=openai` `LLM_BASE_URL=https://api.groq.com/openai/v1` `LLM_MODEL=<model id>` `LLM_API_KEY=...` |
+| Ollama (local, free) | `LLM_PROVIDER=openai` `LLM_BASE_URL=http://host.docker.internal:11434/v1` `LLM_MODEL=llama3.2` `LLM_API_KEY=ollama` |
+
+Leave `LLM_PROVIDER` empty to run without an LLM.
+
+### When the LLM is not available
+
+- A failed call (timeout, error, unusable reply) is retried 3 times with
+  backoff: 10s, 20s, 40s (NFR-08).
+- After the last retry, or immediately if no provider is configured, the
+  complaint gets the template reply from `prompts/fallback_v2.txt`, marked
+  **handle manually** with the reason (FR-25). Agents can press *Try the AI
+  again* later.
+- Classification, priority and the dashboard keep working throughout (NFR-07).
+
+### Details worth knowing
+
+- **Privacy.** Only the redacted text is sent: emails, phone numbers and
+  card/account numbers are replaced first (FR-06, C-03).
+- **Prompt injection.** The system prompt tells the model the complaint is data
+  and never to follow instructions inside it.
+- **Invented citations are dropped.** The model can only cite the `KB-n` labels
+  it was given; anything else is discarded.
+- **Cache.** Identical complaint text reuses earlier content with no new LLM
+  call (FR-24). The dashboard shows "reused from an identical complaint".
+- **Prompts are versioned files** in `backend/app/prompts/` (NFR-22). To change
+  a prompt, add `*_v3.txt` files and set `PROMPT_VERSION=v3`; stored content
+  records the version that produced it.
+- **Knowledge base.** `make seed` adds 12 sample procedure articles, two per
+  category (`backend/app/knowledge_base.py`). Managers can add more through
+  `POST /api/v1/knowledge-articles`.
+
+---
+
 ## What works today
 
 | Piece | State |
@@ -139,7 +195,9 @@ A red banner appears at the top of every page when a new P0 complaint arrives
 | React dashboard with polling | Working |
 | Category classification | Working — DistilBERT, test macro-F1 0.866 |
 | Sentiment analysis | Working — pretrained RoBERTa |
-| Summary, suggested resolution, draft response | **Not built** — week 7 |
+| Summary, grounded resolution with citations, draft reply (Claude or any OpenAI-compatible API) | Working |
+| Edit, regenerate in another tone, approve | Working |
+| LLM cache, retries and template fallback | Working |
 | Database migrations (Alembic) | Working |
 | Login, JWT auth and roles (agent, manager, admin) | Working |
 | User management API (admin) | Working |
@@ -211,7 +269,6 @@ Every PR needs a reviewer who is not the author.
 6. Person C builds the analytics page.
 7. Person D adds integration tests to CI and gets a deployment running.
 
-Do not start the LLM layer until the classifier baseline is measurable.
 
 ---
 

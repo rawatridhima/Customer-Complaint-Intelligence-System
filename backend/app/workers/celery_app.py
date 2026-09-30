@@ -13,7 +13,12 @@ celery_app.conf.update(
     task_acks_late=True,
     worker_prefetch_multiplier=1,
     broker_transport_options={"visibility_timeout": 120},
-    task_routes={"tasks.analyse_complaint": {"queue": "analysis"}},
+    # Two queues so a slow LLM provider never delays classification. The
+    # worker in docker-compose consumes both; they can be scaled separately.
+    task_routes={
+        "tasks.analyse_complaint": {"queue": "analysis"},
+        "tasks.generate_complaint_content": {"queue": "llm"},
+    },
 )
 
 celery_app.autodiscover_tasks(["app.workers"])

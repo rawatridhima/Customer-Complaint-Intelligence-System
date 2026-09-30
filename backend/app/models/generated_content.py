@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func, text
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -41,6 +41,16 @@ class GeneratedContent(Base):
     was_edited: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False
     )
+
+    # FR-21: the tone the draft was written in (urgent, empathetic, professional).
+    tone: Mapped[str | None] = mapped_column(String(24))
+
+    # FR-25: true when the LLM could not be used and draft_response is the
+    # predefined template. The complaint then needs manual handling.
+    is_fallback: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false"), nullable=False
+    )
+    fallback_reason: Mapped[str | None] = mapped_column(String(255))
 
     approved_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),

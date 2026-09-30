@@ -2,6 +2,7 @@ import logging
 import uuid
 from app.services.generated_content_service import GeneratedContentService
 from app.core.database import session_scope
+from app.core.exceptions import LLMUnavailableError, NotFoundError
 from app.core.logging import log_event
 from app.models.enums import AnalysisStatus
 from app.models.prediction import Prediction
@@ -123,38 +124,50 @@ def analyse_complaint(self, complaint_id: str) -> None:
     name="tasks.generate_complaint_content",
     bind=True,
     max_retries=3,
-    retry_backoff=True,
-    retry_jitter=True,
     acks_late=True,
-    time_limit=90,
-    soft_time_limit=75,
+    time_limit=120,
+    soft_time_limit=100,
 )
 def generate_complaint_content(
     self,
     complaint_id: str,
 ) -> None:
-    """Run the independent LLM generation stage."""
+    """The LLM stage. Independent of ML analysis: if the LLM is down, the
+    complaint is still classified, prioritised and visible (NFR-07).
 
+    A failed LLM call is retried with exponential backoff (NFR-08). Only the
+    last attempt falls back to the template response (FR-25), so a brief
+    provider outage does not leave a complaint with a template.
+    """
     cid = uuid.UUID(complaint_id)
+    final_attempt = self.request.retries >= self.max_retries
 
     try:
         with session_scope() as db:
             service = GeneratedContentService(db)
-            service.generate(cid)
-
+            if service_has_content(service, cid):
+                # Redelivered task, or an agent already generated it.
+                return
+            # With no LLM configured there is nothing to retry: fall back now.
+            content = service.generate(
+                cid, allow_fallback=final_attempt or not service.llm_available)
             log_event(
                 logger,
                 "llm_generation_complete",
                 complaint_id=complaint_id,
                 stage="llm_generation",
+                fallback=content.is_fallback,
+                attempt=self.request.retries + 1,
             )
+    except LLMUnavailableError as exc:
+        logger.warning("LLM unavailable for %s (attempt %d): %s",
+                       complaint_id, self.request.retries + 1, exc.message)
+        raise self.retry(exc=exc, countdown=2 ** (self.request.retries + 1) * 5) from exc
 
-    except Exception as exc:
-        logger.exception(
-            "LLM generation failed for %s",
-            complaint_id,
-        )
 
-        # ML prediction is already complete, so LLM failure
-        # must not mark the complaint analysis as failed.
-        raise self.retry(exc=exc) from exc
+def service_has_content(service: GeneratedContentService, complaint_id: uuid.UUID) -> bool:
+    try:
+        service.get(complaint_id)
+    except NotFoundError:
+        return False
+    return True

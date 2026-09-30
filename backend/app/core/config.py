@@ -15,10 +15,19 @@ class Settings(BaseSettings):
     MODEL_DIR: Path = Path("/models")
     CONFIDENCE_THRESHOLD: float = 0.95
 
+    # LLM (FR-19 to FR-25). Leave LLM_PROVIDER empty to run without an LLM:
+    # every complaint then gets the template response and is flagged for
+    # manual handling (FR-25). Providers:
+    #   anthropic - Claude API
+    #   openai    - any OpenAI-compatible API: OpenAI, Gemini, Groq, Ollama...
+    #               (set LLM_BASE_URL for anything other than OpenAI itself)
+    LLM_PROVIDER: str = ""
     LLM_API_KEY: SecretStr = SecretStr("")
     LLM_MODEL: str = ""
-    LLM_TIMEOUT_SECONDS: int = 30
-    PROMPT_VERSION: str = "v1"
+    LLM_BASE_URL: str = ""
+    LLM_TIMEOUT_SECONDS: int = 20
+    LLM_MAX_TOKENS: int = 700
+    PROMPT_VERSION: str = "v2"
 
     PRIORITY_W_SENTIMENT: float = 0.40
     PRIORITY_W_CATEGORY: float = 0.25

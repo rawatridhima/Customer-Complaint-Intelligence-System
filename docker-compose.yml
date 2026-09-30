@@ -43,7 +43,7 @@ services:
 
   worker:
     build: ./backend
-    command: celery -A app.workers.celery_app worker -Q analysis -c 1 --loglevel=info
+    command: celery -A app.workers.celery_app worker -Q analysis,llm -c 1 --loglevel=info
     env_file: .env
     environment:
       PYTHONPATH: /code:/ml_src
