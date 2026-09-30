@@ -15,8 +15,9 @@ dist/
 *.local
 
 ml/data/
-ml/models/
+ml/models/*
 !ml/models/.gitkeep
+!ml/models/README.md
 *.pkl
 *.pt
 *.bin
