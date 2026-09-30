@@ -1,11 +1,14 @@
+import json
 import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import NotFoundError
+from app.models.audit_log import AuditLog
 from app.models.complaint import Complaint
 from app.models.generated_content import GeneratedContent
+from app.repositories.audit_log_repo import AuditLogRepository
 from app.repositories.complaint_repo import ComplaintRepository
 from app.repositories.generated_content_repo import GeneratedContentRepository
 from app.services.llm_service import LLMService
@@ -17,6 +20,7 @@ class GeneratedContentService:
     def __init__(self, db: Session) -> None:
         self._complaint_repo = ComplaintRepository(db)
         self._repo = GeneratedContentRepository(db)
+        self._audit = AuditLogRepository(db)
         self._llm = LLMService()
 
     def generate(self, complaint_id: uuid.UUID) -> GeneratedContent:
@@ -117,6 +121,14 @@ class GeneratedContentService:
         content.final_response = final_response
         content.approved_by = approved_by
         content.approved_at = datetime.now(UTC)
+        # FR-30: approvals are part of the complaint's audit trail.
+        self._audit.add(AuditLog(
+            actor_id=approved_by,
+            action="response_approved",
+            entity_type="complaint",
+            entity_id=complaint_id,
+            details=json.dumps({"edited": content.was_edited}),
+        ))
 
         self._repo.update(content)
         self._repo.commit()

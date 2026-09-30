@@ -98,6 +98,32 @@ in once for all requests.
 
 ---
 
+## Working a complaint
+
+| Action | Where | API |
+|---|---|---|
+| Filter by status, category, priority, sentiment, assignee, date; sort by priority | Inbox | `GET /complaints?…&sort=priority` |
+| Change status (only moves the state machine allows) | Detail page | `PATCH /complaints/{id}` |
+| Change status of many at once | Inbox checkboxes | `PATCH /complaints/bulk-status` |
+| Correct a wrong category | Detail page | `PATCH /complaints/{id}/category` |
+| Assign to yourself | Detail page | `PATCH /complaints/{id}/assignee` |
+| See who did what | Detail page, History | `GET /complaints/{id}/history` |
+
+Correcting a category (FR-10) keeps the model's original answer, records who
+changed it and when, recalculates priority (category severity is one of its
+factors), and saves the correction as a training example (FR-41).
+
+Bulk updates check each complaint on its own: if one in the selection is
+already resolved, it is reported back as failed and the rest still update.
+
+Every status change, category correction, assignment and approval is written
+to the audit log with the user who did it (FR-30).
+
+A red banner appears at the top of every page when a new P0 complaint arrives
+(FR-18). Dismissing it hides the current ones; the next P0 brings it back.
+
+---
+
 ## What works today
 
 | Piece | State |
@@ -106,7 +132,10 @@ in once for all requests.
 | Duplicate detection (hash + customer + 24h) | Working |
 | Async dispatch to Celery worker | Working |
 | Priority scoring with explainable breakdown | Working |
-| Complaint list and detail API | Working |
+| Complaint list with filters, sorting and pagination | Working |
+| Status changes, bulk status, category override, assignment | Working |
+| Audit trail per complaint | Working |
+| P0 alert banner | Working |
 | React dashboard with polling | Working |
 | Category classification | Working — DistilBERT, test macro-F1 0.866 |
 | Sentiment analysis | Working — pretrained RoBERTa |

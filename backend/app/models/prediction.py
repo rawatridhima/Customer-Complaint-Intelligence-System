@@ -44,4 +44,14 @@ class Prediction(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
+    # FR-10. Set when an agent overrides the category. original_category keeps
+    # the model's first answer even if the category is overridden again.
+    original_category: Mapped[Category | None] = mapped_column(
+        Enum(Category, name="category_enum")
+    )
+    overridden_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.user_id", ondelete="SET NULL")
+    )
+    overridden_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     complaint = relationship("Complaint", back_populates="prediction")
