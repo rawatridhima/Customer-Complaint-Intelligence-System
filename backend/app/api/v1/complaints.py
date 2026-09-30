@@ -3,6 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, Query, status
 
 from app.api.v1.deps import (
+    StaffUser,
     get_complaint_service,
     get_generated_content_service,
     get_prediction_service,
@@ -28,6 +29,9 @@ from app.services.prediction_service import PredictionService
 
 router = APIRouter(prefix="/complaints", tags=["complaints"])
 
+# Submitting a complaint is public: customers file them (FR-01, SRS 2.3).
+# Every other route is for signed-in staff (FR-38).
+
 
 @router.post("", response_model=ComplaintCreated, status_code=status.HTTP_201_CREATED)
 def create_complaint(
@@ -39,6 +43,7 @@ def create_complaint(
 
 @router.get("", response_model=Paginated)
 def list_complaints(
+    user: StaffUser,
     page: int = Query(1, ge=1),
     size: int = Query(25, ge=1, le=100),
     status_filter: ComplaintStatus | None = Query(None, alias="status"),
@@ -60,6 +65,7 @@ def list_complaints(
 
 @router.get("/{complaint_id}", response_model=ComplaintDetail)
 def get_complaint(
+    user: StaffUser,
     complaint_id: uuid.UUID,
     service: ComplaintService = Depends(get_complaint_service),
 ):
@@ -68,6 +74,7 @@ def get_complaint(
 
 @router.patch("/{complaint_id}", response_model=ComplaintDetail)
 def update_status(
+    user: StaffUser,
     complaint_id: uuid.UUID,
     payload: StatusUpdate,
     service: ComplaintService = Depends(get_complaint_service),
@@ -80,6 +87,7 @@ def update_status(
     response_model=PredictionOut,
 )
 def get_prediction(
+    user: StaffUser,
     complaint_id: uuid.UUID,
     service: PredictionService = Depends(get_prediction_service),
 ):
@@ -91,6 +99,7 @@ def get_prediction(
     response_model=GeneratedContentOut,
 )
 def generate_content(
+    user: StaffUser,
     complaint_id: uuid.UUID,
     service: GeneratedContentService = Depends(
         get_generated_content_service
@@ -104,6 +113,7 @@ def generate_content(
     response_model=GeneratedContentOut,
 )
 def get_generated_content(
+    user: StaffUser,
     complaint_id: uuid.UUID,
     service: GeneratedContentService = Depends(
         get_generated_content_service
@@ -116,6 +126,7 @@ def get_generated_content(
     response_model=GeneratedContentOut,
 )
 def update_generated_content(
+    user: StaffUser,
     complaint_id: uuid.UUID,
     payload: GeneratedContentUpdate,
     service: GeneratedContentService = Depends(
@@ -133,6 +144,7 @@ def update_generated_content(
     response_model=GeneratedContentOut,
 )
 def approve_generated_content(
+    user: StaffUser,
     complaint_id: uuid.UUID,
     payload: GeneratedContentApprove,
     service: GeneratedContentService = Depends(
@@ -142,4 +154,5 @@ def approve_generated_content(
     return service.approve(
         complaint_id=complaint_id,
         final_response=payload.final_response,
+        approved_by=user.user_id,
     )

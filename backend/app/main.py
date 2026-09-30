@@ -6,11 +6,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.v1.router import api_router
+from app.core.config import settings
 from app.core.exceptions import AppError
 from app.core.logging import configure_logging, correlation_id
 
 configure_logging()
 logger = logging.getLogger(__name__)
+
+_INSECURE_SECRETS = {"dev-only-change-me", "change-me-to-a-long-random-string", ""}
+if settings.JWT_SECRET.get_secret_value() in _INSECURE_SECRETS:
+    logger.warning(
+        "JWT_SECRET is a placeholder. Anyone who knows it can forge a login "
+        "token. Set a long random value in .env before deploying."
+    )
 
 app = FastAPI(
     title="Customer Complaint Intelligence System",

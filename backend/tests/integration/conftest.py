@@ -32,3 +32,32 @@ def client():
 
     with TestClient(app) as c:
         yield c
+
+
+@pytest.fixture
+def demo_users(migrated_database):
+    """The three demo accounts from the seed script (idempotent)."""
+    from app.core.database import get_session_factory
+    from app.seed import DEMO_USERS, seed_users
+
+    db = get_session_factory()()
+    try:
+        seed_users(db)
+    finally:
+        db.close()
+    return {username: password for username, _, password, _ in DEMO_USERS}
+
+
+@pytest.fixture
+def auth_headers(client, demo_users):
+    """auth_headers("manager") -> {"Authorization": "Bearer ..."}"""
+
+    def _headers(username: str) -> dict:
+        resp = client.post(
+            "/api/v1/auth/login",
+            json={"username": username, "password": demo_users[username]},
+        )
+        assert resp.status_code == 200, resp.text
+        return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
+    return _headers

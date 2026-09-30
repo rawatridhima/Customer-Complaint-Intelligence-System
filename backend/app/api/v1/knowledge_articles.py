@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.api.v1.deps import get_db
+from app.api.v1.deps import STAFF, ManagerUser, get_db, require_role
 from app.models.enums import Category
 from app.schemas.knowledge_article import (
     KnowledgeArticleCreate,
@@ -15,6 +15,7 @@ from app.services.knowledge_article_service import KnowledgeArticleService
 router = APIRouter(
     prefix="/knowledge-articles",
     tags=["knowledge-articles"],
+    dependencies=[Depends(require_role(*STAFF))],
 )
 
 
@@ -31,6 +32,7 @@ def get_knowledge_article_service(
 )
 def create_article(
     payload: KnowledgeArticleCreate,
+    user: ManagerUser,
     service: KnowledgeArticleService = Depends(
         get_knowledge_article_service
     ),

@@ -28,6 +28,17 @@ clone needs nothing extra. Load sample complaints:
 make seed
 ```
 
+Sign in at http://localhost:5173 with one of the demo accounts the seed creates:
+
+| Username | Password | Role | Can |
+|---|---|---|---|
+| `agent` | `agent-demo-pass` | Agent | work complaints, give feedback, approve drafts |
+| `manager` | `manager-demo-pass` | Manager | everything an agent can, plus audit logs and knowledge articles |
+| `admin` | `admin-demo-pass` | Admin | everything, plus user management |
+
+These are for local use only. On a real deployment, skip the seed and create
+the first administrator with `docker compose run --rm api python -m app.create_user --username <name> --email <email> --role admin`.
+
 **Upgrading an existing local database.** If your database volume was created
 before migrations existed (by the old `create_all` startup), the first
 migration will fail with "relation already exists". It is only seed data, so
@@ -66,6 +77,27 @@ change and its migration go in the same PR. The integration test
 
 ---
 
+## Authentication and roles
+
+`POST /api/v1/auth/login` takes a username and password and returns a signed
+JWT (FR-37). Every other route needs `Authorization: Bearer <token>`, except
+`POST /api/v1/complaints`, which stays public because customers submit
+complaints without an account. In `/docs`, use the **Authorize** button to sign
+in once for all requests.
+
+- Tokens expire after `JWT_EXPIRY_MINUTES` (default 480); the dashboard then
+  returns to the login page (FR-40).
+- The user's role and active flag are re-read from the database on every
+  request, so deactivating an account or changing a role takes effect
+  immediately, not when the token expires.
+- Who did something (`corrected_by`, `approved_by`, audit `actor_id`) is taken
+  from the token, never from the request body.
+- Role checks live in `api/v1/deps.py` (`StaffUser`, `ManagerUser`,
+  `AdminUser`). The dashboard hides what a role cannot use, but the API is what
+  enforces it (FR-38, FR-39).
+
+---
+
 ## What works today
 
 | Piece | State |
@@ -80,7 +112,8 @@ change and its migration go in the same PR. The integration test
 | Sentiment analysis | Working — pretrained RoBERTa |
 | Summary, suggested resolution, draft response | **Not built** — week 7 |
 | Database migrations (Alembic) | Working |
-| Auth and RBAC | **Not built** — week 6 |
+| Login, JWT auth and roles (agent, manager, admin) | Working |
+| User management API (admin) | Working |
 | Analytics dashboard | **Not built** — week 8 |
 
 The stubs return the same shape as the real thing. Replacing `ClassifierService.predict()` with a DistilBERT call changes one file.

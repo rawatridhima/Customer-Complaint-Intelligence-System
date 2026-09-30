@@ -3,6 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
+from app.api.v1.deps import STAFF, StaffUser, require_role
 from app.core.database import get_db
 from app.schemas.feedback import FeedbackCreate, FeedbackOut
 from app.services.feedback_service import FeedbackService
@@ -10,6 +11,7 @@ from app.services.feedback_service import FeedbackService
 router = APIRouter(
     prefix="/feedback",
     tags=["feedback"],
+    dependencies=[Depends(require_role(*STAFF))],
 )
 
 
@@ -26,6 +28,7 @@ def get_feedback_service(
 )
 def create_feedback(
     payload: FeedbackCreate,
+    user: StaffUser,
     service: FeedbackService = Depends(get_feedback_service),
 ):
     return service.create(
@@ -33,7 +36,7 @@ def create_feedback(
         field_corrected=payload.field_corrected,
         original_value=payload.original_value,
         corrected_value=payload.corrected_value,
-        corrected_by=payload.corrected_by,
+        corrected_by=user.user_id,  # from the token, never the request body
         model_version=payload.model_version,
     )
 

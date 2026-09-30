@@ -5,16 +5,17 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class FeedbackCreate(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     complaint_id: uuid.UUID
     field_corrected: str = Field(min_length=1, max_length=32)
     original_value: str = Field(min_length=1, max_length=64)
     corrected_value: str = Field(min_length=1, max_length=64)
-    corrected_by: uuid.UUID
     model_version: str = Field(min_length=1, max_length=32)
 
 
 class FeedbackOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
 
     feedback_id: uuid.UUID
     complaint_id: uuid.UUID

@@ -18,8 +18,20 @@ Coverage is deliberate:
 """
 
 from app.core.database import get_session_factory
+from app.core.security import hash_password
+from app.models.enums import UserRole
+from app.models.user import User
+from app.repositories.user_repo import UserRepository
 from app.schemas.complaint import ComplaintCreate
 from app.services.complaint_service import ComplaintService
+
+# Demo accounts, one per role, for local development and the viva demo only.
+# For a real deployment create accounts with: python -m app.create_user
+DEMO_USERS = [
+    ("agent", "agent@example.com", "agent-demo-pass", UserRole.AGENT),
+    ("manager", "manager@example.com", "manager-demo-pass", UserRole.MANAGER),
+    ("admin", "admin@example.com", "admin-demo-pass", UserRole.ADMIN),
+]
 
 _UNAUTHORISED_INQUIRY = (
     "There is a hard inquiry on my Equifax report from a lender I have never "
@@ -106,8 +118,23 @@ SAMPLES = [
 ]
 
 
+def seed_users(db) -> None:
+    """Idempotent: running make seed twice does not duplicate accounts."""
+    users = UserRepository(db)
+    for username, email, password, role in DEMO_USERS:
+        if users.get_by_username(username):
+            continue
+        users.add(User(
+            username=username, email=email,
+            password_hash=hash_password(password), role=role,
+        ))
+        print(f"created user {username:8} password {password:18} role {role.value}")
+    users.commit()
+
+
 def main() -> None:
     db = get_session_factory()()
+    seed_users(db)
     service = ComplaintService(db)
     for text, ref in SAMPLES:
         complaint = service.create(ComplaintCreate(text=text, customer_ref=ref))
