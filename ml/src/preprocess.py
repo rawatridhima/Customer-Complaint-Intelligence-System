@@ -9,7 +9,7 @@ import re
 
 _DATE = re.compile(r"\b(?:xx|\d{1,2})/(?:xx|\d{1,2})/(?:xxxx|xx|\d{2,4})\b")
 _MONEY = re.compile(r"\{?\$\s*[\d,]*\.?\d+\}?")
-_REDACTION = re.compile(r"x{2,}")
+_REDACTION = re.compile(r"(?i)x{2,}")
 _URL = re.compile(r"http\S+")
 _LONGNUM = re.compile(r"\d{6,}")
 _WS = re.compile(r"\s+")
@@ -23,3 +23,12 @@ def normalise(text: str) -> str:
     text = _URL.sub(" <url> ", text)
     text = _LONGNUM.sub(" <num> ", text)
     return _WS.sub(" ", text).strip()
+
+
+def light_clean(text: str) -> str:
+    """Normalisation for sentiment only.
+
+    Keeps capitals and punctuation, which carry emotional intensity
+    ("NEVER", "!!!"), and only strips the CFPB redaction markers.
+    """
+    return _WS.sub(" ", _REDACTION.sub(" ", text)).strip()

@@ -453,38 +453,53 @@ def normalise(text: str) -> str:
 ```python
 # services/classifier_service.py
 
-class ClassifierService:
-    """Singleton. Model is loaded once at process start, never per request."""
+class TransformerClassifier:
+    """Fine-tuned DistilBERT. Loaded once per worker process, never per task."""
 
-    _instance: "ClassifierService | None" = None
+    def __init__(self, model_dir: Path):
+        # torch and transformers are imported inside __init__, not at module
+        # level, so this module still imports in CI where neither is installed.
+        import torch
+        from transformers import AutoModelForSequenceClassification, AutoTokenizer
+        from preprocess import normalise      # the training-time function itself
 
-    def __init__(self, model_path: Path, version: str):
-        self._tokenizer = AutoTokenizer.from_pretrained(model_path)
-        self._model = AutoModelForSequenceClassification.from_pretrained(model_path)
-        self._model.eval()
-        self._version = version
-        self._labels = json.loads((model_path / "labels.json").read_text())
+        self._tokenizer = AutoTokenizer.from_pretrained(model_dir)
+        self._model = AutoModelForSequenceClassification.from_pretrained(model_dir).eval()
+        self._labels = [Category(name)
+                        for name in json.loads((model_dir / "labels.json").read_text())]
+        self.version = model_dir.name
 
-    @torch.inference_mode()
     def predict(self, text: str) -> ClassificationResult:
         start = time.perf_counter()
-        enc = self._tokenizer(normalise(text), truncation=True,
-                              max_length=256, return_tensors="pt")
-        logits = self._model(**enc).logits
-        probs = torch.softmax(logits, dim=-1)[0]
+        with self._torch.inference_mode():
+            enc = self._tokenizer(
+                normalise(text),
+                truncation=True,
+                max_length=512,
+                return_token_type_ids=False,   # DistilBERT has no segment embeddings
+                return_tensors="pt",
+            )
+            probs = self._torch.softmax(self._model(**enc).logits, dim=-1)[0]
         idx = int(probs.argmax())
+        conf = float(probs[idx])
         return ClassificationResult(
             category=self._labels[idx],
-            confidence=float(probs[idx]),
-            needs_review=float(probs[idx]) < settings.CONFIDENCE_THRESHOLD,  # [FR-09]
-            model_version=self._version,
+            confidence=round(conf, 3),
+            needs_review=conf < settings.CONFIDENCE_THRESHOLD,   # [FR-09]
+            model_version=self.version,
             inference_ms=int((time.perf_counter() - start) * 1000),
         )
 ```
 
-**Why `max_length=256`.** Empirically covers the 95th percentile of complaint length in the CFPB corpus while keeping CPU inference under the 200ms target [NFR-01]. Raising it to 512 roughly doubles latency.
+**Why `max_length=512`.** The 256-token assumption in version 1.0 was wrong. Exploratory analysis measured the 95th percentile of complaint length at 782 tokens, with 36% of complaints exceeding 256. Both settings were trained and compared: 512 scores 0.866 test macro-F1 against 0.859 at 256, and measures 88 ms p95 against 44 ms. Both are inside the NFR-01 budget, so accuracy was preferred. The gain is small because truncation is not the dominant error source — see the error analysis in `README.md`.
 
-**Why singleton.** Loading a DistilBERT checkpoint takes 2–4 seconds. Loading per request would breach NFR-01 by an order of magnitude.
+**Why sentiment uses `max_length=128`.** Emotional tone is established in the opening sentences, whereas the product is often named late in a complaint. At 128 tokens the sentiment score correlates 0.987 with the 512-token score (mean absolute difference 0.025) while p95 latency falls from 182 ms to 56 ms.
+
+**Why `return_token_type_ids=False`.** DistilBERT has no segment embeddings and raises `TypeError` if the key is present. Whether the tokeniser emits it depends on the `transformers` version that wrote the tokeniser config, so it is suppressed explicitly rather than relied upon. This is a train-serve environment mismatch that only appears at integration time.
+
+**Why loading is lazy.** The API process imports this module transitively (`complaint_service` → `workers.tasks`) purely to enqueue a job, and never calls `predict()`. Loading at import time would place roughly 1.5 GB of weights in a process that does not use them. The services are wrapped in a lazy holder that loads on first use; the Celery worker calls `warm()` from the `worker_process_init` signal so the first real complaint does not pay the load cost inside its time limit. Cold start is ~630 ms against ~50 ms warm.
+
+**Why loading never raises.** If the model directory is absent or a load fails, the service logs the reason and falls back to a rule-based stub with the same interface. CI has no model files, and a new teammate must be able to run `docker compose up` before downloading a 250 MB checkpoint. The active path is identifiable from `model_version` on any prediction: `distilbert-v1-512` or `stub-v0`.
 
 ## 5.3 Training Configuration
 
@@ -493,8 +508,8 @@ class ClassifierService:
 
 CONFIG = {
     "base_model":      "distilbert-base-uncased",
-    "max_length":      256,
-    "batch_size":      32,
+    "max_length":      512,
+    "batch_size":      16,   # halved: 512-token inputs roughly double GPU memory
     "learning_rate":   2e-5,
     "epochs":          4,
     "warmup_ratio":    0.1,
@@ -506,6 +521,8 @@ CONFIG = {
 ```
 
 Class imbalance is handled with weights computed as `n_samples / (n_classes * class_count)`, passed to a weighted `CrossEntropyLoss` [DR-04].
+
+**Analysis tasks must be idempotent.** Celery guarantees at-least-once delivery. When the broker connection drops for longer than the visibility timeout, an unacknowledged message becomes visible again and is redelivered; with `acks_late=True` this is expected behaviour, not an error condition. Because `predictions.complaint_id` carries a unique constraint, a redelivered task that re-inserted would raise `IntegrityError` and retry indefinitely. `analyse_complaint` therefore returns early when the complaint already has a prediction.
 
 ## 5.4 Model Registry
 

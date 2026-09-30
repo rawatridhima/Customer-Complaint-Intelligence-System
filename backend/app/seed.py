@@ -1,18 +1,105 @@
-"""Populate the database with sample complaints. Run: make seed"""
+"""Populate the database with sample complaints. Run: make seed
+
+The samples are written in the style of the CFPB Consumer Complaint
+Database the classifier was trained on (financial products, consumer
+voice, redaction markers), so the seeded dashboard shows the six real
+categories rather than placeholder data.
+
+Coverage is deliberate:
+  - all six categories appear at least once
+  - CUST-2004 files twice, so the repeat_complaint priority factor fires
+  - one complaint carries urgency terms (fraud / legal) for a P0 row
+  - one is calm and factual, to show a low-priority row
+  - the last entry repeats CUST-2001's text verbatim, to demonstrate
+    duplicate detection (FR-05)
+"""
 
 from app.core.database import Base, get_engine, get_session_factory
 from app.schemas.complaint import ComplaintCreate
 from app.services.complaint_service import ComplaintService
 
+_UNAUTHORISED_INQUIRY = (
+    "There is a hard inquiry on my Equifax report from a lender I have never "
+    "applied to, dated XX/XX/2018. I did not authorize anyone to pull my credit "
+    "report and this inquiry has lowered my score. I want it removed."
+)
+
 SAMPLES = [
-    ("I was charged twice for order 88421 on 12 August and support has not replied in 5 days.", "CUST-1001"),
-    ("The parcel was supposed to arrive last Tuesday. Tracking has not updated and nobody answers.", "CUST-1002"),
-    ("Product arrived broken. The screen is cracked and the box was damaged. This is unacceptable.", "CUST-1003"),
-    ("Refund was promised three weeks ago and I have still not received the money back. Urgent.", "CUST-1004"),
-    ("The app crashes every time I try to log in with OTP. Error appears immediately on submit.", "CUST-1005"),
-    ("Your agent was extremely rude on the call and hung up on me while I was still speaking.", "CUST-1006"),
-    ("Thanks for resolving my issue quickly, the replacement arrived and works great.", "CUST-1007"),
-    ("This is the third time I am writing about the same billing error. Considering consumer court.", "CUST-1004"),
+    # report_misuse
+    (_UNAUTHORISED_INQUIRY, "CUST-2001"),
+    (
+        "I received a letter saying I was approved for a store card I never applied "
+        "for. Someone is using my information to open accounts. This is identity "
+        "fraud and I am contacting a lawyer if it is not resolved immediately.",
+        "CUST-2002",
+    ),
+    # credit_report_dispute
+    (
+        "I have disputed the same account with Experian three times now. They keep "
+        "coming back saying it is verified, but they have never sent me the "
+        "origination documents I asked for. The account is not mine.",
+        "CUST-2003",
+    ),
+    (
+        "My short sale was completed in 2017 but it is being reported as a "
+        "foreclosure on my credit file. This is inaccurate and it is the reason I "
+        "was turned down for a car loan last week. Please make them correct it.",
+        "CUST-2004",
+    ),
+    # debt_collection
+    (
+        "A collection agency has been calling my workplace after I told them twice "
+        "in writing to stop. They have added fees to the balance that nobody will "
+        "explain and they will not send me validation of the debt.",
+        "CUST-2005",
+    ),
+    (
+        "I am being contacted about a debt I already paid off in full last year. I "
+        "sent them the receipt and they still refuse to remove it. I have never "
+        "owed this company anything since then.",
+        "CUST-2006",
+    ),
+    # mortgage
+    (
+        "My mortgage servicer is holding the insurance check for my roof repair and "
+        "will not release the funds. The roof is still open and they have had the "
+        "check for six weeks. Meanwhile they are threatening foreclosure.",
+        "CUST-2007",
+    ),
+    (
+        "I applied for a loan modification in XX/XX/2018 and have sent the same "
+        "paperwork four times because they keep changing my representative. Each "
+        "time I call I am told the file is still under review.",
+        "CUST-2008",
+    ),
+    # cards_and_accounts
+    (
+        "There were unauthorized charges of {$450.00} on my credit card. I reported "
+        "them the same day, but the bank reversed the temporary credit without "
+        "telling me and now says I am responsible for the full amount.",
+        "CUST-2009",
+    ),
+    (
+        "I would like a copy of my checking account statement for last month. The "
+        "online banking site only shows the last 90 days and I need an older one "
+        "for my records. Please advise how to request it.",
+        "CUST-2010",
+    ),
+    # consumer_loans
+    (
+        "My student loan servicer reported my payments as late even though I have "
+        "been in deferment since XX/XX/2018. Nobody emailed or called me, and I "
+        "only found out when my score dropped.",
+        "CUST-2011",
+    ),
+    (
+        "I took a payday loan and was told the terms were six payments of {$120.00}. "
+        "The contract that printed had completely different terms that I never "
+        "signed, and they are now charging me late fees on top.",
+        "CUST-2004",
+    ),
+    # Exact repeat of the first complaint, same customer: FR-05 duplicate detection.
+    (_UNAUTHORISED_INQUIRY, "CUST-2001"),
 ]
 
 
@@ -22,7 +109,8 @@ def main() -> None:
     service = ComplaintService(db)
     for text, ref in SAMPLES:
         complaint = service.create(ComplaintCreate(text=text, customer_ref=ref))
-        print(f"created {complaint.complaint_id}")
+        marker = " (duplicate)" if complaint.duplicate_of else ""
+        print(f"created {complaint.complaint_id}{marker}")
     db.close()
 
 
