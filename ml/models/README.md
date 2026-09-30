@@ -38,7 +38,7 @@ needs internet access and takes a minute or two.
 
 ### Option A — download the trained model
 
-1. Download `distilbert-v1-512.zip` from: **<ADD SHARED LINK HERE>**
+1. Download `distilbert-v1-512.zip` from: **(https://drive.google.com/drive/folders/1y_te93h8Kb-d4pRX923-wj3v4-h1AeQ5)**
 2. Unzip it so that the folder sits at `ml/models/distilbert-v1-512/` with the
    files listed above directly inside it (not nested one level deeper).
 3. Restart the worker: `docker compose restart worker`

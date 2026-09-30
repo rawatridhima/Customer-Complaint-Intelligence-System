@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     JWT_EXPIRY_MINUTES: int = 480
 
     MODEL_DIR: Path = Path("/models")
-    CONFIDENCE_THRESHOLD: float = 0.75
+    CONFIDENCE_THRESHOLD: float = 0.95
 
     LLM_API_KEY: SecretStr = SecretStr("")
     LLM_MODEL: str = ""
