@@ -21,10 +21,20 @@ Then:
 - API docs — http://localhost:8000/docs
 - Health — http://localhost:8000/health
 
-Load sample complaints:
+The API container applies database migrations on every start, so a fresh
+clone needs nothing extra. Load sample complaints:
 
 ```bash
 make seed
+```
+
+**Upgrading an existing local database.** If your database volume was created
+before migrations existed (by the old `create_all` startup), the first
+migration will fail with "relation already exists". It is only seed data, so
+reset it:
+
+```bash
+make db-reset      # wipes the volume, runs migrations, reseeds
 ```
 
 Run the tests:
@@ -34,6 +44,25 @@ cd backend && python -m pytest tests/unit -v
 ```
 
 The unit tests need no database and no Docker. That is deliberate — if a unit test requires infrastructure, it is an integration test.
+
+---
+
+## Database migrations
+
+The schema is managed by [Alembic](https://alembic.sqlalchemy.org/). Tables are
+never created from the models at runtime.
+
+| Task | Command |
+|---|---|
+| Apply pending migrations | `make migrate` |
+| After changing a model | `make migration m="add users.last_login"` |
+| Start over with a clean database | `make db-reset` |
+
+After `make migration`, open the new file in `backend/migrations/versions/`
+and read it before committing. Autogenerate misses some changes (renames look
+like drop + add, and new enum values need `ALTER TYPE ... ADD VALUE`). A model
+change and its migration go in the same PR. The integration test
+`test_models_match_migrations` fails if they drift apart.
 
 ---
 
@@ -50,6 +79,7 @@ The unit tests need no database and no Docker. That is deliberate — if a unit 
 | Category classification | Working — DistilBERT, test macro-F1 0.866 |
 | Sentiment analysis | Working — pretrained RoBERTa |
 | Summary, suggested resolution, draft response | **Not built** — week 7 |
+| Database migrations (Alembic) | Working |
 | Auth and RBAC | **Not built** — week 6 |
 | Analytics dashboard | **Not built** — week 8 |
 
@@ -62,6 +92,7 @@ The stubs return the same shape as the real thing. Replacing `ClassifierService.
 ```
 backend/app/
   core/          config, database, security, logging, exceptions
+backend/migrations/  Alembic migrations (schema history)
   models/        SQLAlchemy tables
   schemas/       Pydantic request and response shapes
   repositories/  all database access

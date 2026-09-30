@@ -1,5 +1,8 @@
 """Populate the database with sample complaints. Run: make seed
 
+The schema must already exist: the api container runs `alembic upgrade head`
+on start, or run `make migrate` yourself.
+
 The samples are written in the style of the CFPB Consumer Complaint
 Database the classifier was trained on (financial products, consumer
 voice, redaction markers), so the seeded dashboard shows the six real
@@ -14,7 +17,7 @@ Coverage is deliberate:
     duplicate detection (FR-05)
 """
 
-from app.core.database import Base, get_engine, get_session_factory
+from app.core.database import get_session_factory
 from app.schemas.complaint import ComplaintCreate
 from app.services.complaint_service import ComplaintService
 
@@ -104,7 +107,6 @@ SAMPLES = [
 
 
 def main() -> None:
-    Base.metadata.create_all(bind=get_engine())
     db = get_session_factory()()
     service = ComplaintService(db)
     for text, ref in SAMPLES:

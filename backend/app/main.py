@@ -1,16 +1,13 @@
 import logging
 import uuid
-from sqlalchemy import text
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.v1.router import api_router
-from app.core.database import Base, get_engine
 from app.core.exceptions import AppError
 from app.core.logging import configure_logging, correlation_id
-from app.models import Complaint, Prediction, User  # noqa: F401  (registers tables)
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -18,7 +15,10 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Customer Complaint Intelligence System",
     version="0.1.0",
-    description="Skeleton build. ML and LLM stages are stubbed.",
+    description=(
+        "Classifies, prioritises and drafts responses to customer complaints. "
+        "Schema is managed by Alembic migrations (backend/migrations)."
+    ),
 )
 
 app.add_middleware(
@@ -52,16 +52,6 @@ async def app_error_handler(request: Request, exc: AppError):
             }
         },
     )
-
-
-@app.on_event("startup")
-def on_startup() -> None:
-    """Skeleton uses create_all. Replace with Alembic before week 6."""
-    engine = get_engine()
-    with engine.begin() as conn:
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-    Base.metadata.create_all(bind=engine)
-    logger.info("schema ready")
 
 
 @app.get("/health", tags=["system"])
