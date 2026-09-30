@@ -4,6 +4,7 @@ import ComplaintDetail from './pages/ComplaintDetail';
 import Login from './pages/Login';
 import RequireAuth from './auth/RequireAuth';
 import { useAuth } from './auth/AuthContext';
+import P0Alert from './components/P0Alert';
 
 function Header() {
   const { user, logout } = useAuth();
@@ -27,10 +28,18 @@ function Header() {
   );
 }
 
+function SignedInOnly({ children }) {
+  const { status } = useAuth();
+  return status === 'signed_in' ? children : null;
+}
+
 export default function App() {
   return (
     <div className="mx-auto max-w-6xl px-8 py-10">
       <Header />
+      <SignedInOnly>
+        <P0Alert />
+      </SignedInOnly>
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route

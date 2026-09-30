@@ -1,11 +1,12 @@
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.complaint import Complaint
-from app.models.enums import AnalysisStatus, Category, ComplaintStatus, Priority
+from app.models.enums import AnalysisStatus, Category, ComplaintStatus, Priority, Sentiment
 from app.models.prediction import Prediction
 
 
@@ -61,35 +62,72 @@ class ComplaintRepository:
         status: ComplaintStatus | None = None,
         category: Category | None = None,
         priority: Priority | None = None,
+        sentiment: Sentiment | None = None,
         analysis_status: AnalysisStatus | None = None,
+        assigned_to: uuid.UUID | None = None,
+        unassigned: bool = False,
+        submitted_from: datetime | None = None,
+        submitted_to: datetime | None = None,
+        sort: str = "newest",
     ) -> tuple[list[Complaint], int]:
+        """FR-26. Filters combine with AND. sort: newest, oldest or priority."""
+        conditions = []
+        if status is not None:
+            conditions.append(Complaint.status == status)
+        if analysis_status is not None:
+            conditions.append(Complaint.analysis_status == analysis_status)
+        if assigned_to is not None:
+            conditions.append(Complaint.assigned_to == assigned_to)
+        if unassigned:
+            conditions.append(Complaint.assigned_to.is_(None))
+        if submitted_from is not None:
+            conditions.append(Complaint.submitted_at >= submitted_from)
+        if submitted_to is not None:
+            conditions.append(Complaint.submitted_at < submitted_to)
+
+        prediction_filters = []
+        if category is not None:
+            prediction_filters.append(Prediction.category == category)
+        if priority is not None:
+            prediction_filters.append(Prediction.priority_bucket == priority)
+        if sentiment is not None:
+            prediction_filters.append(Prediction.sentiment_label == sentiment)
+
         stmt = select(Complaint).options(selectinload(Complaint.prediction))
         count_stmt = select(func.count()).select_from(Complaint)
 
-        if status is not None:
-            stmt = stmt.where(Complaint.status == status)
-            count_stmt = count_stmt.where(Complaint.status == status)
-        if analysis_status is not None:
-            stmt = stmt.where(Complaint.analysis_status == analysis_status)
-            count_stmt = count_stmt.where(Complaint.analysis_status == analysis_status)
-        if category is not None or priority is not None:
-            stmt = stmt.join(Prediction)
-            count_stmt = count_stmt.join(Prediction)
-            if category is not None:
-                stmt = stmt.where(Prediction.category == category)
-                count_stmt = count_stmt.where(Prediction.category == category)
-            if priority is not None:
-                stmt = stmt.where(Prediction.priority_bucket == priority)
-                count_stmt = count_stmt.where(Prediction.priority_bucket == priority)
+        if prediction_filters:
+            # Inner join: a complaint still being analysed has no prediction,
+            # so it cannot match a prediction filter.
+            stmt = stmt.join(Prediction).where(*prediction_filters)
+            count_stmt = count_stmt.join(Prediction).where(*prediction_filters)
+        elif sort == "priority":
+            stmt = stmt.outerjoin(Prediction)
+
+        if conditions:
+            stmt = stmt.where(*conditions)
+            count_stmt = count_stmt.where(*conditions)
+
+        if sort == "priority":
+            order = (Prediction.priority_score.desc().nulls_last(),
+                     Complaint.submitted_at.desc())
+        elif sort == "oldest":
+            order = (Complaint.submitted_at.asc(),)
+        else:
+            order = (Complaint.submitted_at.desc(),)
 
         total = self._db.execute(count_stmt).scalar_one()
-        stmt = (
-            stmt.order_by(Complaint.submitted_at.desc())
-            .offset((page - 1) * size)
-            .limit(size)
-        )
+        stmt = stmt.order_by(*order).offset((page - 1) * size).limit(size)
         items = list(self._db.execute(stmt).scalars().all())
         return items, total
+
+    def get_many(self, complaint_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, Complaint]:
+        stmt = (
+            select(Complaint)
+            .options(selectinload(Complaint.prediction))
+            .where(Complaint.complaint_id.in_(complaint_ids))
+        )
+        return {c.complaint_id: c for c in self._db.execute(stmt).scalars().all()}
 
     def add_prediction(self, prediction: Prediction) -> Prediction:
         self._db.add(prediction)

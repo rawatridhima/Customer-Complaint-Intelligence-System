@@ -1,4 +1,6 @@
 import uuid
+from datetime import date, datetime, time, timedelta, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, status
 
@@ -8,12 +10,19 @@ from app.api.v1.deps import (
     get_generated_content_service,
     get_prediction_service,
 )
-from app.models.enums import AnalysisStatus, Category, ComplaintStatus, Priority
+from app.core.exceptions import ValidationError
+from app.models.enums import AnalysisStatus, Category, ComplaintStatus, Priority, Sentiment
 from app.schemas.complaint import (
+    AssignRequest,
+    BulkFailure,
+    BulkStatusResult,
+    BulkStatusUpdate,
+    CategoryOverride,
     ComplaintCreate,
     ComplaintCreated,
     ComplaintDetail,
     ComplaintSummary,
+    HistoryEntry,
     Paginated,
     PredictionOut,
     StatusUpdate,
@@ -41,6 +50,10 @@ def create_complaint(
     return service.create(payload)
 
 
+def _day_start(d: date | None) -> datetime | None:
+    return datetime.combine(d, time.min, tzinfo=timezone.utc) if d else None
+
+
 @router.get("", response_model=Paginated)
 def list_complaints(
     user: StaffUser,
@@ -49,17 +62,49 @@ def list_complaints(
     status_filter: ComplaintStatus | None = Query(None, alias="status"),
     category: Category | None = None,
     priority: Priority | None = None,
+    sentiment: Sentiment | None = None,
     analysis_status: AnalysisStatus | None = None,
+    assigned: Literal["me", "none"] | None = Query(
+        None, description="me = assigned to you, none = unassigned"),
+    assigned_to: uuid.UUID | None = Query(None, description="a specific user"),
+    date_from: date | None = Query(None, description="submitted on or after (UTC)"),
+    date_to: date | None = Query(None, description="submitted on or before (UTC)"),
+    sort: Literal["newest", "oldest", "priority"] = "newest",
     service: ComplaintService = Depends(get_complaint_service),
 ):
+    """FR-26. Filterable, sortable complaint list."""
+    if date_from and date_to and date_from > date_to:
+        raise ValidationError("date_from must be on or before date_to")
     items, total = service.list(
         page=page, size=size, status=status_filter,
-        category=category, priority=priority, analysis_status=analysis_status,
+        category=category, priority=priority, sentiment=sentiment,
+        analysis_status=analysis_status,
+        assigned_to=user.user_id if assigned == "me" else assigned_to,
+        unassigned=assigned == "none",
+        submitted_from=_day_start(date_from),
+        submitted_to=_day_start(date_to + timedelta(days=1)) if date_to else None,
+        sort=sort,
     )
     return Paginated(
         items=[ComplaintSummary.model_validate(c) for c in items],
         page=page, size=size, total=total,
         pages=(total + size - 1) // size,
+    )
+
+
+# Declared before "/{complaint_id}" routes so "bulk-status" is never read as an id.
+@router.patch("/bulk-status", response_model=BulkStatusResult)
+def bulk_update_status(
+    user: StaffUser,
+    payload: BulkStatusUpdate,
+    service: ComplaintService = Depends(get_complaint_service),
+):
+    """FR-29. Complaints that cannot make the move are listed in `failed`;
+    the rest are still updated."""
+    updated, failed = service.bulk_update_status(payload.complaint_ids, payload.status, user)
+    return BulkStatusResult(
+        updated=updated,
+        failed=[BulkFailure(complaint_id=cid, reason=r) for cid, r in failed],
     )
 
 
@@ -79,7 +124,41 @@ def update_status(
     payload: StatusUpdate,
     service: ComplaintService = Depends(get_complaint_service),
 ):
-    return service.update_status(complaint_id, payload.status)
+    """FR-28. Only moves allowed by the state machine; see allowed_next_statuses."""
+    return service.update_status(complaint_id, payload.status, user)
+
+
+@router.patch("/{complaint_id}/category", response_model=ComplaintDetail)
+def override_category(
+    user: StaffUser,
+    complaint_id: uuid.UUID,
+    payload: CategoryOverride,
+    service: ComplaintService = Depends(get_complaint_service),
+):
+    """FR-10. Correct the predicted category. Priority is recalculated and the
+    correction is saved as training feedback."""
+    return service.override_category(complaint_id, payload.category, user)
+
+
+@router.patch("/{complaint_id}/assignee", response_model=ComplaintDetail)
+def assign_complaint(
+    user: StaffUser,
+    complaint_id: uuid.UUID,
+    payload: AssignRequest,
+    service: ComplaintService = Depends(get_complaint_service),
+):
+    """Assign to a staff member, or send user_id null to unassign."""
+    return service.assign(complaint_id, payload.user_id, user)
+
+
+@router.get("/{complaint_id}/history", response_model=list[HistoryEntry])
+def complaint_history(
+    user: StaffUser,
+    complaint_id: uuid.UUID,
+    service: ComplaintService = Depends(get_complaint_service),
+):
+    """FR-30. Audit trail for one complaint, newest first."""
+    return service.history(complaint_id)
 
 
 @router.get(
