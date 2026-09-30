@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
@@ -103,7 +104,9 @@ class GeneratedContentService:
         self,
         complaint_id: uuid.UUID,
         final_response: str,
+        approved_by: uuid.UUID,
     ) -> GeneratedContent:
+        """FR-22. Records who approved the response and when."""
         content = self._repo.get_by_complaint(complaint_id)
 
         if content is None:
@@ -112,6 +115,8 @@ class GeneratedContentService:
             )
 
         content.final_response = final_response
+        content.approved_by = approved_by
+        content.approved_at = datetime.now(UTC)
 
         self._repo.update(content)
         self._repo.commit()

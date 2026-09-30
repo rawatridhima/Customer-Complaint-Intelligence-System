@@ -29,7 +29,7 @@ class ComplaintCreated(BaseModel):
 
 
 class PredictionOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
 
     category: Category
     category_confidence: float
