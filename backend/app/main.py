@@ -1,5 +1,6 @@
 import logging
 import uuid
+from sqlalchemy import text
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -56,7 +57,10 @@ async def app_error_handler(request: Request, exc: AppError):
 @app.on_event("startup")
 def on_startup() -> None:
     """Skeleton uses create_all. Replace with Alembic before week 6."""
-    Base.metadata.create_all(bind=get_engine())
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+    Base.metadata.create_all(bind=engine)
     logger.info("schema ready")
 
 

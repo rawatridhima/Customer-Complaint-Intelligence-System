@@ -41,10 +41,17 @@ services:
 
   worker:
     build: ./backend
-    command: celery -A app.workers.celery_app worker -Q analysis -c 2 --loglevel=info
+    command: celery -A app.workers.celery_app worker -Q analysis -c 1 --loglevel=info
     env_file: .env
+    environment:
+      PYTHONPATH: /code:/ml_src
+      HF_HOME: /hf_cache
+      TOKENIZERS_PARALLELISM: "false"
     volumes:
       - ./backend:/code
+      - ./ml/models:/models:ro
+      - ./ml/src:/ml_src:ro
+      - hf_cache:/hf_cache
     depends_on:
       - api
       - redis
@@ -62,3 +69,4 @@ services:
 
 volumes:
   pgdata:
+  hf_cache:

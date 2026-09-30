@@ -5,22 +5,17 @@ a latency/accuracy experiment: p95 56 ms vs 182 ms at 512 tokens, with
 0.987 correlation between the two scores.
 """
 
-import re
 from dataclasses import dataclass
 from functools import lru_cache
 
 import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
+# light_clean lives in preprocess so the backend can import it without torch.
+from preprocess import light_clean  # noqa: F401
+
 MODEL_NAME = "cardiffnlp/twitter-roberta-base-sentiment-latest"
 MAX_LENGTH = 128
-_WS = re.compile(r"\s+")
-_REDACTION = re.compile(r"(?i)x{2,}")
-
-
-def light_clean(text: str) -> str:
-    """Keep capitals and punctuation: they carry emotional intensity."""
-    return _WS.sub(" ", _REDACTION.sub(" ", text)).strip()
 
 
 @dataclass(frozen=True)

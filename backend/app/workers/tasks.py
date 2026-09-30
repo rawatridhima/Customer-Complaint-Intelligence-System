@@ -9,6 +9,16 @@ from app.repositories.complaint_repo import ComplaintRepository
 from app.services.classifier_service import classifier, sentiment
 from app.services.priority_service import PriorityService
 from app.workers.celery_app import celery_app
+from celery.signals import worker_process_init
+
+
+@worker_process_init.connect
+def _warm_models(**_kwargs) -> None:
+    """Load models when a worker process starts, not inside the first task.
+    Loading takes 10-30s, which would otherwise blow analyse_complaint's
+    45s soft time limit."""
+    classifier.warm()
+    sentiment.warm()
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +49,14 @@ def analyse_complaint(self, complaint_id: str) -> None:
                 complaint_id,
             )
             return
-
+        if complaint.prediction is not None:
+            logger.info(
+                "complaint %s already has a prediction; "
+                "skipping duplicate delivery",
+                complaint_id,
+            )
+            complaint.analysis_status = AnalysisStatus.COMPLETED
+            return
         complaint.analysis_status = AnalysisStatus.PROCESSING
         db.flush()
 
