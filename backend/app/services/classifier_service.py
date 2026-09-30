@@ -144,6 +144,7 @@ class TransformerClassifier:
                 self._normalise(text),
                 truncation=True,
                 max_length=CLASSIFIER_MAX_LENGTH,
+                return_token_type_ids=False,   # DistilBERT has no segment embeddings
                 return_tensors="pt",
             )
             probabilities = self._torch.softmax(self._model(**encoded).logits, dim=-1)[0]
@@ -182,6 +183,7 @@ class TransformerSentiment:
                 self._light_clean(text),
                 truncation=True,
                 max_length=SENTIMENT_MAX_LENGTH,
+                return_token_type_ids=False,
                 return_tensors="pt",
             )
             probabilities = self._torch.softmax(self._model(**encoded).logits, dim=-1)[0]

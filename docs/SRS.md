@@ -2,7 +2,7 @@
 
 ## AI-Powered Customer Complaint Intelligence System
 
-**Document Version:** 1.0
+**Document Version:** 1.1
 **Date:** September 2026
 **Prepared by:** [Team Member 1], [Team Member 2], [Team Member 3], [Team Member 4]
 **Project Guide:** [Guide Name]
@@ -17,6 +17,7 @@
 |---|---|---|---|
 | 0.1 | [Date] | Team | Initial outline |
 | 1.0 | [Date] | Team | First complete draft submitted for guide review |
+| 1.1 | 2026-09-30 | Team | Categories redefined against the CFPB corpus; confidence threshold, model-quality and latency requirements updated against measured results |
 
 ---
 
@@ -218,17 +219,21 @@ The following shall be delivered alongside the software:
 
 ## 3.2 Classification
 
-**FR-07** The system shall classify every complaint into exactly one of the following six categories: *Billing and Payments*, *Delivery and Logistics*, *Product Defect*, *Service Quality*, *Technical Issue*, *Refund and Returns*.
+**FR-07** The system shall classify every complaint into exactly one of the following six categories: *Credit Report Dispute*, *Report Misuse*, *Debt Collection*, *Cards and Accounts*, *Mortgage*, *Consumer Loans*.
+
+> *Rationale for change (v1.1).* The categories in version 1.0 were defined before the training corpus was examined. The CFPB Consumer Complaint Database covers consumer financial products only; no record in it maps to *Delivery and Logistics* or *Product Defect*, so two of the six original categories would have had zero training examples and could never have been predicted. The categories above are derived from the corpus itself (see DR-02) and each is supported by at least 15,000 labelled narratives.
 
 **FR-08** The system shall store, alongside each classification, a confidence score in the range 0.0 to 1.0.
 
-**FR-09** The system shall route any complaint whose classification confidence falls below 0.75 to a manual review queue, flagged for agent verification.
+**FR-09** The system shall route any complaint whose classification confidence falls below the configured confidence threshold to a manual review queue, flagged for agent verification. The threshold shall be configurable without redeployment and shall default to **0.95**.
+
+> *Basis.* The value was selected by sweeping the threshold on the validation set and confirming it on the held-out test set. At 0.95, 78.5% of complaints are auto-labelled at 93.9% accuracy, and 63.8% of the model's errors are routed to a human. The 0.75 value in version 1.0 was an estimate made before the model existed; measurement showed it captured under a third of errors.
 
 **FR-10** The system shall allow an authorised agent to override any predicted category, and shall record the original prediction, the corrected value, the agent identity, and the timestamp.
 
 ## 3.3 Sentiment Analysis
 
-**FR-11** The system shall assign each complaint a sentiment label of *Positive*, *Neutral*, or *Negative*.
+**FR-11** The system shall assign each complaint a sentiment label of *Positive*, *Neutral*, or *Negative*. Sentiment shall be produced by a pretrained model rather than one trained in-project, because the training corpus carries no sentiment labels (see DR-06).
 
 **FR-12** The system shall compute a sentiment intensity score in the range 0.0 to 1.0 representing the strength of the detected polarity.
 
@@ -314,7 +319,7 @@ The following shall be delivered alongside the software:
 
 | ID | Requirement |
 |---|---|
-| **NFR-01** | Category classification shall complete within 200 milliseconds at the 95th percentile on CPU inference. |
+| **NFR-01** | Category classification shall complete within 200 milliseconds at the 95th percentile on CPU inference. *Measured: 88 ms p95 (DistilBERT, 512 tokens, 2 CPU threads); 144 ms p95 for classification and sentiment combined. Inference executes in the asynchronous worker, not in the submission request path.* |
 | **NFR-02** | LLM-generated analysis shall complete within 5 seconds at the 95th percentile, executed asynchronously. |
 | **NFR-03** | Any dashboard view shall render within 2 seconds for a dataset of up to 100,000 complaints. |
 | **NFR-04** | The system shall sustain 100 concurrent authenticated users without degradation beyond the stated latency targets. |
@@ -367,12 +372,12 @@ The following shall be delivered alongside the software:
 
 ## 4.7 Model Quality
 
-| ID | Requirement |
-|---|---|
-| **NFR-26** | The classification model shall achieve a macro-F1 score of at least 0.75 on a held-out test set. |
-| **NFR-27** | The classification model shall demonstrably outperform the TF-IDF baseline on macro-F1. |
-| **NFR-28** | No single category shall have recall below 0.60 on the held-out test set. |
-| **NFR-29** | Generated summaries shall achieve a ROUGE-L score of at least 0.30 against reference summaries on the evaluation sample. |
+| ID | Requirement | Status |
+|---|---|---|
+| **NFR-26** | The classification model shall achieve a macro-F1 score of at least 0.75 on a held-out test set. | **Met** — 0.866 |
+| **NFR-27** | The classification model shall demonstrably outperform the TF-IDF baseline on macro-F1. | **Met** — 0.866 vs 0.849 |
+| **NFR-28** | No single category shall have recall below 0.60 on the held-out test set. | **Met** — lowest is *Credit Report Dispute* at 0.724 |
+| **NFR-29** | Generated summaries shall achieve a ROUGE-L score of at least 0.30 against reference summaries on the evaluation sample. | **Not yet evaluated** — LLM stage pending |
 
 ---
 
@@ -547,15 +552,21 @@ Transitions are permitted only as shown. Every transition is written to the audi
 
 ## 7.1 Training Data
 
-The classification and sentiment models shall be trained on a publicly available complaint corpus. The Consumer Financial Protection Bureau Consumer Complaint Database is the primary source, filtered to records containing a non-empty narrative field.
+The classification model is trained on the Consumer Financial Protection Bureau (CFPB) Consumer Complaint Database, filtered to records containing a non-empty consumer narrative. The working snapshot covers May 2017 to May 2019 and yields 212,356 usable records.
 
-**DR-01** The training dataset shall contain at least 30,000 labelled complaint narratives.
+The CFPB ceased publishing complaint narratives on 14 August 2026 and moved previously published narratives to its FOIA reading room. The snapshot used here is therefore frozen and cannot be refreshed from the official source; its provenance and date range are recorded in `README.md`.
+
+**DR-01** The training dataset shall contain at least 30,000 labelled complaint narratives. *Met — 60,000 after balancing to 10,000 per category.*
 
 **DR-02** Source categories shall be mapped to the six system categories through an explicit, version-controlled mapping definition.
 
 **DR-03** The dataset shall be split into training, validation, and test partitions in a 70/15/15 ratio, stratified by category, with a fixed random seed for reproducibility.
 
-**DR-04** Class imbalance shall be addressed through class weighting or resampling, and the chosen approach documented.
+**DR-04** Class imbalance shall be addressed through class weighting or resampling, and the chosen approach documented. *Both are applied: the corpus is down-sampled to 10,000 records per category, and training uses class-weighted cross-entropy.*
+
+**DR-05** The text normalisation applied at training time and at inference time shall be the same implementation, imported from a single module, to prevent train-serve skew.
+
+**DR-06** Sentiment shall not be trained in-project. The corpus carries no sentiment labels, so a pretrained sentiment model is used directly and evaluated qualitatively on a sample.
 
 ## 7.2 Knowledge Base
 
