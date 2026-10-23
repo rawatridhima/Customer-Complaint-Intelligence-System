@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     LLM_TIMEOUT_SECONDS: int = 20
     LLM_MAX_TOKENS: int = 700
     PROMPT_VERSION: str = "v2"
+    # How many complaints the worker sends to the LLM per minute. Each one is
+    # two requests, so "5/m" is 10 requests a minute, inside free-tier limits.
+    # A batch of complaints then queues up instead of tripping HTTP 429.
+    LLM_RATE_LIMIT: str = "5/m"
 
     PRIORITY_W_SENTIMENT: float = 0.40
     PRIORITY_W_CATEGORY: float = 0.25

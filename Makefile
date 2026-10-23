@@ -1,4 +1,4 @@
-.PHONY: up down logs test fmt seed shell migrate migration db-reset
+.PHONY: up down logs test fmt seed shell migrate migration db-reset seed-history seed-history-clear
 
 up:
 	docker compose up --build
@@ -14,6 +14,13 @@ test:
 
 seed:
 	docker compose run --rm api python -m app.seed
+
+# ~3 months of synthetic complaints for the analytics charts. No LLM calls.
+seed-history:
+	docker compose run --rm api python -m app.seed_history
+
+seed-history-clear:
+	docker compose run --rm api python -m app.seed_history --clear
 
 shell:
 	docker compose exec api bash

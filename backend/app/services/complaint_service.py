@@ -25,12 +25,14 @@ from app.repositories.user_repo import UserRepository
 from app.schemas.complaint import ComplaintCreate
 from app.services.priority_service import PriorityService
 from app.services.redaction_service import RedactionService
+from app.services.settings_service import SettingsService
 
 logger = logging.getLogger(__name__)
 
 
 class ComplaintService:
     def __init__(self, db: Session) -> None:
+        self._db = db
         self._repo = ComplaintRepository(db)
         self._audit = AuditLogRepository(db)
         self._feedback = FeedbackRepository(db)
@@ -161,7 +163,7 @@ class ComplaintService:
         prediction.needs_review = False  # a person has now checked it
 
         old_bucket = prediction.priority_bucket
-        priority = PriorityService().compute(
+        priority = PriorityService(SettingsService(self._db).priority_weights()).compute(
             text=complaint.redacted_text,
             category=new_category,
             sentiment_label=prediction.sentiment_label,

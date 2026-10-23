@@ -1,5 +1,6 @@
 """Import model modules so SQLAlchemy registers all tables."""
 
+from app.models.app_setting import AppSetting
 from app.models.audit_log import AuditLog
 from app.models.complaint import Complaint
 from app.models.feedback import Feedback
@@ -9,6 +10,7 @@ from app.models.prediction import Prediction
 from app.models.user import User
 
 __all__ = [
+    "AppSetting",
     "AuditLog",
     "Complaint",
     "Feedback",

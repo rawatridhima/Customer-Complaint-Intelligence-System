@@ -112,7 +112,7 @@ export default function ResponsePanel({ complaintId }) {
               </p>
             ) : (
               <p className="mt-2 text-xs text-amber-800">
-                No knowledge base article matched. Check the steps against policy before acting.
+                None of the knowledge base articles for this category applied. Check the steps against policy before acting.
               </p>
             )}
           </AIField>

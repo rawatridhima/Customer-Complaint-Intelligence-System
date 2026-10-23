@@ -33,6 +33,8 @@ services:
     env_file: .env
     volumes:
       - ./backend:/code
+      # Read-only, for the model's saved test results on the analytics page.
+      - ./ml/models:/models:ro
     ports:
       - "8000:8000"
     depends_on:

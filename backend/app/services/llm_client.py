@@ -17,7 +17,7 @@ from typing import Protocol
 import httpx
 
 from app.core.config import settings
-from app.core.exceptions import LLMUnavailableError
+from app.core.exceptions import LLMRateLimitedError, LLMUnavailableError
 
 
 @dataclass(frozen=True)
@@ -42,6 +42,18 @@ def _post(url: str, headers: dict, body: dict) -> dict:
     except httpx.HTTPError as exc:
         raise LLMUnavailableError(f"Could not reach the LLM: {exc.__class__.__name__}") from exc
 
+    if resp.status_code == 429:
+        body = resp.text
+        daily = "perday" in body.lower().replace(" ", "").replace("_", "")
+        try:
+            retry_after = int(resp.headers.get("retry-after", "60"))
+        except ValueError:
+            retry_after = 60
+        raise LLMRateLimitedError(
+            "LLM daily quota used up (HTTP 429)" if daily
+            else "LLM rate limit reached (HTTP 429)",
+            retry_after=retry_after, daily=daily,
+        )
     if resp.status_code >= 400:
         # Never include the request (it holds the complaint) in the message.
         raise LLMUnavailableError(f"LLM returned HTTP {resp.status_code}: {resp.text[:200]}")

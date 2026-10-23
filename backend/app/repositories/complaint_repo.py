@@ -129,6 +129,15 @@ class ComplaintRepository:
         )
         return {c.complaint_id: c for c in self._db.execute(stmt).scalars().all()}
 
+    def open_with_predictions(self) -> Sequence[Complaint]:
+        stmt = (
+            select(Complaint)
+            .join(Prediction)
+            .options(selectinload(Complaint.prediction))
+            .where(Complaint.status != ComplaintStatus.RESOLVED)
+        )
+        return list(self._db.execute(stmt).scalars().all())
+
     def add_prediction(self, prediction: Prediction) -> Prediction:
         self._db.add(prediction)
         self._db.flush()

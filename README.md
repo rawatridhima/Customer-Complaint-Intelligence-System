@@ -180,6 +180,64 @@ Leave `LLM_PROVIDER` empty to run without an LLM.
 
 ---
 
+## Analytics and manager tools
+
+Managers and admins get three extra pages; agents do not see them, and the
+API refuses them (403).
+
+**Analytics** (`/analytics`)
+- KPIs for any date range: volume, still open, average time to resolve, P0,
+  escalated (FR-31)
+- daily volume stacked by category (FR-32), sentiment and priority mix (FR-33)
+- **emerging issues** (FR-34): a category is flagged when its last 7 days are
+  more than two standard deviations above its normal week, measured over every
+  7-day window in the 30 days before. At least 5 complaints are needed, so a
+  quiet category going from 0 to 2 is not an alert.
+
+**Model health** (`/analytics/model`)
+- live: share of predictions below the 0.95 threshold (FR-36), how often agents
+  corrected the category and to what, confidence distribution (FR-35), model
+  versions in use (FR-43)
+- AI replies: generated, template fallbacks, cache reuse, tokens, approvals
+- held-out test set: per-category precision, recall and F1, confusion matrix
+  and confidence distribution (FR-35). Generate these once from `ml/src`:
+  ```bash
+  python evaluate_model.py --model-dir ../models/distilbert-v1-512 --data-dir ../data
+  ```
+  It reuses the test predictions you already have, so no GPU is needed.
+
+**Settings** (`/settings`)
+- priority weights (FR-17): change the four factor weights without a
+  redeploy; they must add up to 1. Optionally re-score every open complaint.
+  Changes are audited, and *Reset to defaults* returns to the `.env` values.
+- `feedback.csv` (FR-42): every category correction with the redacted text, the
+  predicted and the corrected label, ready for retraining.
+
+**Users** (`/users`, admins only): add accounts, change roles, deactivate.
+
+### Demo data for the charts
+
+`make seed` adds a handful of complaints, all from today. For three months of
+history:
+
+```bash
+make seed-history          # ~600 synthetic complaints over 90 days
+make seed-history-clear    # remove them again
+```
+
+They are marked `DEMO-` / channel `demo`, include a debt-collection surge in
+the last week (so an emerging issue shows), and never call the LLM.
+
+### LLM rate limits
+
+The worker sends at most `LLM_RATE_LIMIT` complaints a minute to the LLM
+(default `5/m`, i.e. 10 requests), so a batch queues up instead of hitting the
+provider's limit. On HTTP 429 it waits as long as the provider asks; if the
+**daily** quota is used up it saves the template straight away instead of
+retrying.
+
+---
+
 ## What works today
 
 | Piece | State |
@@ -201,7 +259,9 @@ Leave `LLM_PROVIDER` empty to run without an LLM.
 | Database migrations (Alembic) | Working |
 | Login, JWT auth and roles (agent, manager, admin) | Working |
 | User management API (admin) | Working |
-| Analytics dashboard | **Not built** — week 8 |
+| Analytics: KPIs, volume, sentiment, emerging issues | Working |
+| Model health: threshold share, corrections, test-set metrics | Working |
+| Priority weights in the dashboard, feedback CSV export, user admin | Working |
 
 The stubs return the same shape as the real thing. Replacing `ClassifierService.predict()` with a DistilBERT call changes one file.
 

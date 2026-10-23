@@ -2,13 +2,15 @@ import logging
 import uuid
 from app.services.generated_content_service import GeneratedContentService
 from app.core.database import session_scope
-from app.core.exceptions import LLMUnavailableError, NotFoundError
+from app.core.config import settings
+from app.core.exceptions import LLMRateLimitedError, LLMUnavailableError, NotFoundError
 from app.core.logging import log_event
 from app.models.enums import AnalysisStatus
 from app.models.prediction import Prediction
 from app.repositories.complaint_repo import ComplaintRepository
 from app.services.classifier_service import classifier, sentiment
 from app.services.priority_service import PriorityService
+from app.services.settings_service import SettingsService
 from app.workers.celery_app import celery_app
 from celery.signals import worker_process_init
 
@@ -69,7 +71,8 @@ def analyse_complaint(self, complaint_id: str) -> None:
                 complaint.customer_ref
             )
 
-            pri = PriorityService().compute(
+            # FR-17: weights a manager set in the dashboard, else the .env defaults.
+            pri = PriorityService(SettingsService(db).priority_weights()).compute(
                 text=complaint.redacted_text,
                 category=cls.category,
                 sentiment_label=snt.label,
@@ -125,6 +128,7 @@ def analyse_complaint(self, complaint_id: str) -> None:
     bind=True,
     max_retries=3,
     acks_late=True,
+    rate_limit=settings.LLM_RATE_LIMIT,
     time_limit=120,
     soft_time_limit=100,
 )
@@ -159,6 +163,18 @@ def generate_complaint_content(
                 fallback=content.is_fallback,
                 attempt=self.request.retries + 1,
             )
+    except LLMRateLimitedError as exc:
+        if exc.daily:
+            # Retrying cannot help until the quota resets: save the template now
+            # instead of spending three more requests on certain failures.
+            logger.warning("LLM daily quota used up; template for %s", complaint_id)
+            with session_scope() as db:
+                GeneratedContentService(db).generate(cid, allow_fallback=True)
+            return
+        logger.warning("LLM rate limited for %s (attempt %d), waiting %ss",
+                       complaint_id, self.request.retries + 1, exc.retry_after)
+        countdown = max(exc.retry_after, 2 ** (self.request.retries + 1) * 5)
+        raise self.retry(exc=exc, countdown=countdown) from exc
     except LLMUnavailableError as exc:
         logger.warning("LLM unavailable for %s (attempt %d): %s",
                        complaint_id, self.request.retries + 1, exc.message)
