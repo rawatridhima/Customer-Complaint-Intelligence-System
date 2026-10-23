@@ -51,10 +51,25 @@ make db-reset      # wipes the volume, runs migrations, reseeds
 Run the tests:
 
 ```bash
-cd backend && python -m pytest tests/unit -v
+make test          # everything, inside Docker (needs `docker compose up` running)
+make coverage      # the same, with a coverage report; fails under 70%
+make test-unit     # unit tests only, no database or Docker needed
 ```
 
 The unit tests need no database and no Docker. That is deliberate — if a unit test requires infrastructure, it is an integration test.
+
+Integration tests run against a **separate database, `cis_test`**, created
+automatically next to your `cis` database. They create complaints and drop
+every table while checking migrations, so they never touch your development
+data. Set `TEST_DATABASE_URL` to use a different one.
+
+`tests/integration/test_end_to_end.py` follows one complaint through the whole
+system (submit, classify, AI reply, category correction, approval, resolution,
+analytics, export). It is the demo in test form.
+
+GitHub Actions runs the full suite against Postgres + pgvector and Redis on
+every pull request and push to `main`, fails under 70% coverage (NFR-19), and
+builds the frontend. See `.github/workflows/ci.yml`.
 
 ---
 
@@ -249,6 +264,7 @@ retrying.
 | Complaint list with filters, sorting and pagination | Working |
 | Status changes, bulk status, category override, assignment | Working |
 | Audit trail per complaint | Working |
+| CI: unit, integration and end-to-end tests, 90% coverage | Working |
 | P0 alert banner | Working |
 | React dashboard with polling | Working |
 | Category classification | Working — DistilBERT, test macro-F1 0.866 |

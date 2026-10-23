@@ -22,6 +22,7 @@ function PriorityWeights() {
   const { data, error } = useQuery({ queryKey: ['priority-weights'], queryFn: getPriorityWeights });
   const [draft, setDraft] = useState(null);
   const [recalculate, setRecalculate] = useState(true);
+  const [lastEdited, setLastEdited] = useState(null);
   const [message, setMessage] = useState(null);
 
   useEffect(() => {
@@ -44,6 +45,28 @@ function PriorityWeights() {
   const sumsToOne = Math.abs(total - 1) < 0.001;
   const changed = FACTORS.some(([k]) => Number(draft[k]) !== data.weights[k]);
   const busy = save.isPending || reset.isPending;
+
+  // Keep the factor the manager just changed, and scale the other three so
+  // the total is exactly 1 (rounded to 2 decimals, any rounding left over goes
+  // on the largest of them).
+  const balance = () => {
+    const fixed = lastEdited ?? FACTORS[0][0];
+    const fixedValue = Math.min(1, Math.max(0, Number(draft[fixed]) || 0));
+    const others = FACTORS.map(([k]) => k).filter((k) => k !== fixed);
+    const othersTotal = others.reduce((sum, k) => sum + (Number(draft[k]) || 0), 0);
+    const room = 1 - fixedValue;
+    const next = { ...draft, [fixed]: fixedValue };
+    others.forEach((k) => {
+      const share = othersTotal > 0 ? (Number(draft[k]) || 0) / othersTotal : 1 / others.length;
+      next[k] = Math.round(share * room * 100) / 100;
+    });
+    const drift = Math.round((1 - FACTORS.reduce((sum, [k]) => sum + next[k], 0)) * 100) / 100;
+    if (drift !== 0) {
+      const largest = others.reduce((a, b) => (next[a] >= next[b] ? a : b));
+      next[largest] = Math.round((next[largest] + drift) * 100) / 100;
+    }
+    setDraft(next);
+  };
 
   const onSave = () => {
     if (recalculate && !window.confirm('Save the new weights and re-score every open complaint?')) return;
@@ -73,7 +96,7 @@ function PriorityWeights() {
                 <input
                   type="range" min="0" max="1" step="0.05"
                   value={draft[key]}
-                  onChange={(e) => setDraft({ ...draft, [key]: Number(e.target.value) })}
+                  onChange={(e) => { setLastEdited(key); setDraft({ ...draft, [key]: Number(e.target.value) }); }}
                   className="w-full accent-ink"
                   aria-label={label}
                 />
@@ -82,7 +105,7 @@ function PriorityWeights() {
                 <input
                   type="number" min="0" max="1" step="0.05"
                   value={draft[key]}
-                  onChange={(e) => setDraft({ ...draft, [key]: e.target.value === '' ? 0 : Number(e.target.value) })}
+                  onChange={(e) => { setLastEdited(key); setDraft({ ...draft, [key]: e.target.value === '' ? 0 : Number(e.target.value) }); }}
                   className="w-20 border border-rule bg-white px-2 py-1 text-right font-mono text-sm"
                 />
               </td>
@@ -95,7 +118,13 @@ function PriorityWeights() {
             <td className="py-3 text-sm font-medium">Total</td>
             <td />
             <td className={`py-3 pl-3 font-mono text-sm ${sumsToOne ? '' : 'text-red-700'}`}>{total.toFixed(2)}</td>
-            <td className="py-3 text-right text-xs text-red-700">{sumsToOne ? '' : 'must be 1.00'}</td>
+            <td className="py-3 text-right text-xs">
+              {!sumsToOne && (
+                <button onClick={balance} className="whitespace-nowrap text-ink underline">
+                  Make them add up to 1
+                </button>
+              )}
+            </td>
           </tr>
         </tbody>
       </table>
@@ -121,6 +150,13 @@ function PriorityWeights() {
           </button>
         )}
       </div>
+      {!sumsToOne && (
+        <p className="mt-3 text-sm text-red-700">
+          The weights add up to {total.toFixed(2)}; they must add up to exactly 1.00 before you can save.
+          Adjust them, or use <span className="underline">Make them add up to 1</span>
+          {lastEdited ? `, which keeps ${FACTORS.find(([k]) => k === lastEdited)[1].toLowerCase()} at ${draft[lastEdited]}` : ''}.
+        </p>
+      )}
       {message && <p role="status" className="mt-3 text-sm text-green-800">{message}</p>}
       {(save.error || reset.error) && <p className="mt-3 text-sm text-red-700">{errorMessage(save.error || reset.error)}</p>}
     </section>

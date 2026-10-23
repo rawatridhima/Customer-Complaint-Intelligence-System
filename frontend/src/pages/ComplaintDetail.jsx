@@ -254,7 +254,15 @@ export default function ComplaintDetail() {
         </div>
 
         <div className="space-y-6">
-          {pending ? (
+          {data.analysis_status === 'failed' ? (
+            <div role="alert" className="border-2 border-amber-500 bg-amber-50 p-3 text-sm text-amber-900">
+              <p className="font-medium">Automatic analysis failed.</p>
+              <p className="mt-1">
+                The classifier could not process this complaint after several tries. Categorise and
+                prioritise it manually, and check the worker logs (<code className="font-mono">docker compose logs worker</code>).
+              </p>
+            </div>
+          ) : pending ? (
             <p className="text-sm text-muted">Analysis in progress. This view updates itself.</p>
           ) : (
             <>

@@ -41,6 +41,7 @@ def analyse_complaint(self, complaint_id: str) -> None:
     cid = uuid.UUID(complaint_id)
 
     analysis_succeeded = False
+    failure: Exception | None = None
 
     with session_scope() as db:
         repo = ComplaintRepository(db)
@@ -111,12 +112,24 @@ def analyse_complaint(self, complaint_id: str) -> None:
             )
 
         except Exception as exc:
-            complaint.analysis_status = AnalysisStatus.FAILED
+            failure = exc
+            final_attempt = self.request.retries >= self.max_retries
             logger.exception(
-                "analysis failed for %s",
-                complaint_id,
+                "analysis failed for %s (attempt %d)",
+                complaint_id, self.request.retries + 1,
             )
-            raise self.retry(exc=exc) from exc
+            # Undo anything half-written (e.g. a prediction), then record the
+            # status in this same transaction so it is actually saved:
+            # "pending" while retries remain, "failed" after the last one.
+            # The complaint itself is never lost (NFR-09).
+            db.rollback()
+            complaint = repo.get(cid)
+            complaint.analysis_status = (
+                AnalysisStatus.FAILED if final_attempt else AnalysisStatus.PENDING)
+
+    if failure is not None:
+        # Outside the transaction, so the status above has been committed.
+        raise self.retry(exc=failure) from failure
 
     # Transaction is committed before LLM task is queued.
     if analysis_succeeded:

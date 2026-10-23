@@ -1,4 +1,4 @@
-.PHONY: up down logs test fmt seed shell migrate migration db-reset seed-history seed-history-clear
+.PHONY: up down logs test test-unit coverage fmt seed shell migrate migration db-reset seed-history seed-history-clear
 
 up:
 	docker compose up --build
@@ -9,8 +9,18 @@ down:
 logs:
 	docker compose logs -f api worker
 
+# All tests (unit + integration). Integration tests use their own database,
+# cis_test, created automatically; your development data is never touched.
 test:
-	docker compose run --rm api pytest -v
+	docker compose run --rm api pytest
+
+# Fast: no database, no Docker needed (run from your own Python environment).
+test-unit:
+	cd backend && python -m pytest tests/unit
+
+# All tests with a coverage report; fails under 70% (NFR-19), as CI does.
+coverage:
+	docker compose run --rm api pytest --cov=app --cov-report=term-missing:skip-covered --cov-fail-under=70
 
 seed:
 	docker compose run --rm api python -m app.seed
