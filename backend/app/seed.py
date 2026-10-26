@@ -19,6 +19,9 @@ Coverage is deliberate:
 
 from app.core.database import get_session_factory
 from app.core.security import hash_password
+from app.knowledge_base import KNOWLEDGE_ARTICLES
+from app.models.knowledge_article import KnowledgeArticle
+from app.repositories.knowledge_article_repo import KnowledgeArticleRepository
 from app.models.enums import UserRole
 from app.models.user import User
 from app.repositories.user_repo import UserRepository
@@ -132,9 +135,35 @@ def seed_users(db) -> None:
     users.commit()
 
 
+def seed_knowledge_base(db) -> None:
+    """Idempotent: articles are matched by title."""
+    repo = KnowledgeArticleRepository(db)
+    added = 0
+    for category, title, body in KNOWLEDGE_ARTICLES:
+        if repo.get_by_title(title) is None:
+            repo.add(KnowledgeArticle(title=title, body=body, category=category))
+            added += 1
+    repo.commit()
+    if added:
+        print(f"created {added} knowledge base articles")
+
+
 def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Load demo data.")
+    parser.add_argument("--knowledge-base-only", action="store_true",
+                        help="only the knowledge base articles: no demo accounts or complaints")
+    args = parser.parse_args()
+
     db = get_session_factory()()
+    if args.knowledge_base_only:
+        seed_knowledge_base(db)
+        db.close()
+        return
     seed_users(db)
+    # Articles before complaints, so the first generated resolutions can cite them.
+    seed_knowledge_base(db)
     service = ComplaintService(db)
     for text, ref in SAMPLES:
         complaint = service.create(ComplaintCreate(text=text, customer_ref=ref))

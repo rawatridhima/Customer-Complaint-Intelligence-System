@@ -1,0 +1,121 @@
+# Production: the whole app behind one web server, on ports 80 and 443.
+#
+#   make prod-up        build and start (see docs/DEPLOYMENT.md)
+#
+# Differences from docker-compose.yml (development):
+#   - Caddy serves the built React app and proxies /api, with automatic HTTPS
+#     when SITE_ADDRESS is a domain name; nothing else is reachable from outside
+#   - no source code mounted, no hot reload; the code is baked into the images
+#   - Postgres and Redis are not published on the host
+#   - secrets come from .env and the API refuses to start with placeholders
+#   - every service restarts on failure and after a reboot
+#
+# It is a separate Compose project ("cis-prod"), so its database, containers
+# and volumes never mix with the development ones.
+
+name: cis-prod
+
+x-backend-env: &backend-env
+  ENVIRONMENT: production
+  DATABASE_URL: postgresql+psycopg://cis:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/cis
+  REDIS_URL: redis://redis:6379/0
+  MODEL_DIR: /models
+  CORS_ORIGINS: ""
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cis
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: cis
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cis"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Queued tasks survive a Redis restart.
+    command: redis-server --appendonly yes
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    # Migrations first; if one fails the container stops instead of serving
+    # against a half-migrated schema.
+    command: >-
+      sh -c "alembic upgrade head &&
+      uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+      --proxy-headers --forwarded-allow-ips='*'"
+    env_file: .env
+    environment: *backend-env
+    volumes:
+      - ./ml/models:/models:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  worker:
+    build: ./backend
+    restart: unless-stopped
+    command: celery -A app.workers.celery_app worker -Q analysis,llm -c 1 --loglevel=info
+    env_file: .env
+    environment:
+      <<: *backend-env
+      PYTHONPATH: /code:/ml_src
+      HF_HOME: /hf_cache
+      TOKENIZERS_PARALLELISM: "false"
+    volumes:
+      - ./ml/models:/models:ro
+      - ./ml/src:/ml_src:ro
+      - hf_cache:/hf_cache
+    depends_on:
+      api:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    restart: unless-stopped
+    environment:
+      # ":80" for plain HTTP; a domain name for automatic HTTPS.
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy_data:/data      # HTTPS certificates; keep this volume
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  redisdata:
+  hf_cache:
+  caddy_data:
+  caddy_config:

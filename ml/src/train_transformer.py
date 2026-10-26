@@ -154,6 +154,8 @@ def main() -> None:
         "n_train": len(splits["train"]),
     }
     (args.out / "metrics.json").write_text(json.dumps(metrics, indent=2))
+    print("\nFor the dashboard's model panel (FR-35), run:\n"
+          f"  python evaluate_model.py --model-dir {args.out} --data-dir {args.data_dir}")
     print(f"\n{metrics}")
 
 

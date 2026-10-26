@@ -2,7 +2,7 @@
 
 Minor project, B.Tech. An AI system that classifies, prioritises, and drafts responses to customer complaints, with a dashboard for support teams.
 
-Intake, storage, classification, sentiment, priority scoring and the dashboard work end to end. The LLM stage is stubbed behind a fixed interface. The ML services fall back to rule-based stubs when the model files are absent, so the application runs without them.
+Intake, storage, classification, sentiment, priority scoring, AI-drafted replies and the dashboard work end to end. Without an LLM configured, every complaint gets a template reply flagged for manual handling. The ML services fall back to rule-based stubs when the model files are absent, so the application runs without them.
 
 ---
 
@@ -51,10 +51,25 @@ make db-reset      # wipes the volume, runs migrations, reseeds
 Run the tests:
 
 ```bash
-cd backend && python -m pytest tests/unit -v
+make test          # everything, inside Docker (needs `docker compose up` running)
+make coverage      # the same, with a coverage report; fails under 70%
+make test-unit     # unit tests only, no database or Docker needed
 ```
 
 The unit tests need no database and no Docker. That is deliberate — if a unit test requires infrastructure, it is an integration test.
+
+Integration tests run against a **separate database, `cis_test`**, created
+automatically next to your `cis` database. They create complaints and drop
+every table while checking migrations, so they never touch your development
+data. Set `TEST_DATABASE_URL` to use a different one.
+
+`tests/integration/test_end_to_end.py` follows one complaint through the whole
+system (submit, classify, AI reply, category correction, approval, resolution,
+analytics, export). It is the demo in test form.
+
+GitHub Actions runs the full suite against Postgres + pgvector and Redis on
+every pull request and push to `main`, fails under 70% coverage (NFR-19), and
+builds the frontend. See `.github/workflows/ci.yml`.
 
 ---
 
@@ -124,6 +139,143 @@ A red banner appears at the top of every page when a new P0 complaint arrives
 
 ---
 
+## AI-drafted replies (LLM stage)
+
+After a complaint is classified, the worker asks an LLM for three things:
+
+- a **summary** of at most two sentences and 60 words (FR-19)
+- a **suggested resolution**, grounded in the knowledge base articles for the
+  complaint's category, with the articles it used listed underneath (FR-20)
+- a **draft reply** in a tone picked from sentiment and priority: *urgent* for
+  P0, *empathetic* for negative, *professional* otherwise (FR-21)
+
+The agent can edit the reply, regenerate it in another tone, and approve it.
+Nothing counts as sent until it is approved, and approval locks it (FR-22).
+The generated draft is kept next to the edited version (FR-23).
+
+### Setting up a provider
+
+Set these in `.env`, then `docker compose up`. Any one of:
+
+| Provider | Settings |
+|---|---|
+| Claude | `LLM_PROVIDER=anthropic` `LLM_MODEL=claude-haiku-4-5` `LLM_API_KEY=...` |
+| Gemini (free tier) | `LLM_PROVIDER=openai` `LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai` `LLM_MODEL=<model id>` `LLM_API_KEY=...` |
+| Groq (free tier) | `LLM_PROVIDER=openai` `LLM_BASE_URL=https://api.groq.com/openai/v1` `LLM_MODEL=<model id>` `LLM_API_KEY=...` |
+| Ollama (local, free) | `LLM_PROVIDER=openai` `LLM_BASE_URL=http://host.docker.internal:11434/v1` `LLM_MODEL=llama3.2` `LLM_API_KEY=ollama` |
+
+Leave `LLM_PROVIDER` empty to run without an LLM.
+
+### When the LLM is not available
+
+- A failed call (timeout, error, unusable reply) is retried 3 times with
+  backoff: 10s, 20s, 40s (NFR-08).
+- After the last retry, or immediately if no provider is configured, the
+  complaint gets the template reply from `prompts/fallback_v2.txt`, marked
+  **handle manually** with the reason (FR-25). Agents can press *Try the AI
+  again* later.
+- Classification, priority and the dashboard keep working throughout (NFR-07).
+
+### Details worth knowing
+
+- **Privacy.** Only the redacted text is sent: emails, phone numbers and
+  card/account numbers are replaced first (FR-06, C-03).
+- **Prompt injection.** The system prompt tells the model the complaint is data
+  and never to follow instructions inside it.
+- **Invented citations are dropped.** The model can only cite the `KB-n` labels
+  it was given; anything else is discarded.
+- **Cache.** Identical complaint text reuses earlier content with no new LLM
+  call (FR-24). The dashboard shows "reused from an identical complaint".
+- **Prompts are versioned files** in `backend/app/prompts/` (NFR-22). To change
+  a prompt, add `*_v3.txt` files and set `PROMPT_VERSION=v3`; stored content
+  records the version that produced it.
+- **Knowledge base.** `make seed` adds 12 sample procedure articles, two per
+  category (`backend/app/knowledge_base.py`). Managers can add more through
+  `POST /api/v1/knowledge-articles`.
+
+---
+
+## Deploying
+
+`docker-compose.prod.yml` runs the whole system behind one web server (Caddy)
+on ports 80/443, with automatic HTTPS when given a domain name, secrets checked
+at startup, and automatic restarts. It works on a cloud server or on a laptop.
+Step-by-step guide, including a free cloud server: **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
+
+```bash
+make prod-up            # build and start in production mode
+make prod-ps            # status
+make prod-backup        # database backup to ./backups
+```
+
+**Before a demo**, generate AI replies ahead of time so nothing depends on the
+LLM being available on the day: `make pregenerate n=10` (or `make
+prod-pregenerate`).
+
+**Resilience.** Submitting a complaint answers in well under a second even if
+Redis is down; the complaint is saved, and the worker re-queues anything left
+unanalysed when it starts.
+
+---
+
+## Analytics and manager tools
+
+Managers and admins get three extra pages; agents do not see them, and the
+API refuses them (403).
+
+**Analytics** (`/analytics`)
+- KPIs for any date range: volume, still open, average time to resolve, P0,
+  escalated (FR-31)
+- daily volume stacked by category (FR-32), sentiment and priority mix (FR-33)
+- **emerging issues** (FR-34): a category is flagged when its last 7 days are
+  more than two standard deviations above its normal week, measured over every
+  7-day window in the 30 days before. At least 5 complaints are needed, so a
+  quiet category going from 0 to 2 is not an alert.
+
+**Model health** (`/analytics/model`)
+- live: share of predictions below the 0.95 threshold (FR-36), how often agents
+  corrected the category and to what, confidence distribution (FR-35), model
+  versions in use (FR-43)
+- AI replies: generated, template fallbacks, cache reuse, tokens, approvals
+- held-out test set: per-category precision, recall and F1, confusion matrix
+  and confidence distribution (FR-35). Generate these once from `ml/src`:
+  ```bash
+  python evaluate_model.py --model-dir ../models/distilbert-v1-512 --data-dir ../data
+  ```
+  It reuses the test predictions you already have, so no GPU is needed.
+
+**Settings** (`/settings`)
+- priority weights (FR-17): change the four factor weights without a
+  redeploy; they must add up to 1. Optionally re-score every open complaint.
+  Changes are audited, and *Reset to defaults* returns to the `.env` values.
+- `feedback.csv` (FR-42): every category correction with the redacted text, the
+  predicted and the corrected label, ready for retraining.
+
+**Users** (`/users`, admins only): add accounts, change roles, deactivate.
+
+### Demo data for the charts
+
+`make seed` adds a handful of complaints, all from today. For three months of
+history:
+
+```bash
+make seed-history          # ~600 synthetic complaints over 90 days
+make seed-history-clear    # remove them again
+```
+
+They are marked `DEMO-` / channel `demo`, include a debt-collection surge in
+the last week (so an emerging issue shows), and never call the LLM.
+
+### LLM rate limits
+
+The worker sends at most `LLM_RATE_LIMIT` complaints a minute to the LLM
+(default `5/m`, i.e. 10 requests), so a batch queues up instead of hitting the
+provider's limit. On HTTP 429 it waits as long as the provider asks; if the
+**daily** quota is used up it saves the template straight away instead of
+retrying.
+
+---
+
 ## What works today
 
 | Piece | State |
@@ -135,15 +287,22 @@ A red banner appears at the top of every page when a new P0 complaint arrives
 | Complaint list with filters, sorting and pagination | Working |
 | Status changes, bulk status, category override, assignment | Working |
 | Audit trail per complaint | Working |
+| CI: unit, integration and end-to-end tests, 89% coverage | Working |
+| Production deployment: Caddy + HTTPS, startup secret checks, backups | Working |
+| Pre-generated AI replies for demos; recovery of unqueued complaints | Working |
 | P0 alert banner | Working |
 | React dashboard with polling | Working |
 | Category classification | Working — DistilBERT, test macro-F1 0.866 |
 | Sentiment analysis | Working — pretrained RoBERTa |
-| Summary, suggested resolution, draft response | **Not built** — week 7 |
+| Summary, grounded resolution with citations, draft reply (Claude or any OpenAI-compatible API) | Working |
+| Edit, regenerate in another tone, approve | Working |
+| LLM cache, retries and template fallback | Working |
 | Database migrations (Alembic) | Working |
 | Login, JWT auth and roles (agent, manager, admin) | Working |
 | User management API (admin) | Working |
-| Analytics dashboard | **Not built** — week 8 |
+| Analytics: KPIs, volume, sentiment, emerging issues | Working |
+| Model health: threshold share, corrections, test-set metrics | Working |
+| Priority weights in the dashboard, feedback CSV export, user admin | Working |
 
 The stubs return the same shape as the real thing. Replacing `ClassifierService.predict()` with a DistilBERT call changes one file.
 
@@ -211,7 +370,6 @@ Every PR needs a reviewer who is not the author.
 6. Person C builds the analytics page.
 7. Person D adds integration tests to CI and gets a deployment running.
 
-Do not start the LLM layer until the classifier baseline is measurable.
 
 ---
 

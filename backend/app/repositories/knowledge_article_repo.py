@@ -39,6 +39,21 @@ class KnowledgeArticleRepository:
 
         return list(self._db.execute(stmt).scalars().all())
 
+    def list_all(self) -> list[KnowledgeArticle]:
+        stmt = select(KnowledgeArticle).order_by(KnowledgeArticle.created_at)
+        return list(self._db.execute(stmt).scalars().all())
+
+    def get_many(self, article_ids: list[uuid.UUID]) -> list[KnowledgeArticle]:
+        if not article_ids:
+            return []
+        stmt = select(KnowledgeArticle).where(KnowledgeArticle.article_id.in_(article_ids))
+        found = {a.article_id: a for a in self._db.execute(stmt).scalars().all()}
+        return [found[i] for i in article_ids if i in found]  # keep citation order
+
+    def get_by_title(self, title: str) -> KnowledgeArticle | None:
+        stmt = select(KnowledgeArticle).where(KnowledgeArticle.title == title)
+        return self._db.execute(stmt).scalar_one_or_none()
+
     def similarity_search(
         self,
         query_embedding: list[float],

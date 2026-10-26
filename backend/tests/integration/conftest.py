@@ -14,14 +14,41 @@ def alembic_config() -> Config:
     return cfg
 
 
+def ensure_test_database() -> None:
+    """Create the separate test database if it does not exist yet.
+
+    tests/conftest.py has already pointed DATABASE_URL at it (for example
+    cis_test next to cis), so nothing here can touch development data.
+    """
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.engine import make_url
+
+    from app.core.config import settings
+
+    url = make_url(settings.DATABASE_URL)
+    assert url.database and url.database.endswith("_test"), (
+        f"Refusing to run integration tests against '{url.database}': "
+        "the test database name must end in _test")
+    admin = create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
+    try:
+        with admin.connect() as conn:
+            exists = conn.execute(
+                text("SELECT 1 FROM pg_database WHERE datname = :n"), {"n": url.database}
+            ).scalar()
+            if not exists:
+                conn.execute(text(f'CREATE DATABASE "{url.database}"'))
+    finally:
+        admin.dispose()
+
+
 @pytest.fixture(scope="session", autouse=True)
 def migrated_database():
     """Bring the test database to the latest schema once per test run.
 
-    The app no longer creates tables on startup, so integration tests run the
-    same migrations production does. Requires DATABASE_URL to point at a
-    reachable Postgres with the pgvector extension available.
+    Integration tests run the same migrations production does, against their
+    own database. Requires a reachable Postgres with pgvector available.
     """
+    ensure_test_database()
     command.upgrade(alembic_config(), "head")
 
 

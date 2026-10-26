@@ -5,6 +5,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    # "production" turns on the startup safety checks in app/core/production.py.
+    ENVIRONMENT: str = "development"
+    # Browser origins allowed to call the API directly, comma-separated. Not
+    # needed in production, where Caddy serves the app and API on one origin.
+    CORS_ORIGINS: str = "http://localhost:5173"
+
     DATABASE_URL: str = "postgresql+psycopg://cis:cis_password@db:5432/cis"
     REDIS_URL: str = "redis://redis:6379/0"
 
@@ -15,10 +21,23 @@ class Settings(BaseSettings):
     MODEL_DIR: Path = Path("/models")
     CONFIDENCE_THRESHOLD: float = 0.95
 
+    # LLM (FR-19 to FR-25). Leave LLM_PROVIDER empty to run without an LLM:
+    # every complaint then gets the template response and is flagged for
+    # manual handling (FR-25). Providers:
+    #   anthropic - Claude API
+    #   openai    - any OpenAI-compatible API: OpenAI, Gemini, Groq, Ollama...
+    #               (set LLM_BASE_URL for anything other than OpenAI itself)
+    LLM_PROVIDER: str = ""
     LLM_API_KEY: SecretStr = SecretStr("")
     LLM_MODEL: str = ""
-    LLM_TIMEOUT_SECONDS: int = 30
-    PROMPT_VERSION: str = "v1"
+    LLM_BASE_URL: str = ""
+    LLM_TIMEOUT_SECONDS: int = 20
+    LLM_MAX_TOKENS: int = 700
+    PROMPT_VERSION: str = "v2"
+    # How many complaints the worker sends to the LLM per minute. Each one is
+    # two requests, so "5/m" is 10 requests a minute, inside free-tier limits.
+    # A batch of complaints then queues up instead of tripping HTTP 429.
+    LLM_RATE_LIMIT: str = "5/m"
 
     PRIORITY_W_SENTIMENT: float = 0.40
     PRIORITY_W_CATEGORY: float = 0.25
@@ -26,6 +45,14 @@ class Settings(BaseSettings):
     PRIORITY_W_REPEAT: float = 0.15
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @property
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT.strip().lower() == "production"
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
 
 
 settings = Settings()

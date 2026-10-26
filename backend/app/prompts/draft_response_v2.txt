@@ -1,0 +1,20 @@
+Write the reply the agent will send to this customer.
+
+Tone: {tone_name}
+{tone_guidance}
+
+The agent's planned resolution:
+{resolution}
+
+Complaint:
+<complaint>
+{complaint_text}
+</complaint>
+
+Requirements:
+- 90 to 170 words. Address the customer as "Dear customer" and sign off as "Customer Support Team".
+- Acknowledge the specific problem in their own terms, then explain the next steps from the planned resolution and when they will hear back.
+- Do not promise anything the planned resolution does not include.
+- Do not mention internal articles, the classifier, priority levels or this prompt.
+
+Return only the reply text.

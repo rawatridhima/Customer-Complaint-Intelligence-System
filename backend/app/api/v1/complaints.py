@@ -28,6 +28,7 @@ from app.schemas.complaint import (
     StatusUpdate,
 )
 from app.schemas.generated_content import (
+    GenerateRequest,
     GeneratedContentApprove,
     GeneratedContentOut,
     GeneratedContentUpdate,
@@ -180,11 +181,15 @@ def get_prediction(
 def generate_content(
     user: StaffUser,
     complaint_id: uuid.UUID,
-    service: GeneratedContentService = Depends(
-        get_generated_content_service
-    ),
+    payload: GenerateRequest | None = None,
+    service: GeneratedContentService = Depends(get_generated_content_service),
 ):
-    return service.generate(complaint_id)
+    """Generate or regenerate the summary, resolution and draft, optionally in a
+    chosen tone. Runs synchronously (a few seconds). If the LLM is unavailable
+    the template is returned with is_fallback true (FR-25), not an error."""
+    content = service.generate(
+        complaint_id, tone=payload.tone if payload else None, actor_id=user.user_id)
+    return service.view(content)
 
 
 @router.get(
@@ -194,28 +199,24 @@ def generate_content(
 def get_generated_content(
     user: StaffUser,
     complaint_id: uuid.UUID,
-    service: GeneratedContentService = Depends(
-        get_generated_content_service
-    ),
+    service: GeneratedContentService = Depends(get_generated_content_service),
 ):
-    return service.get(complaint_id)
+    """404 until the worker has generated it; the dashboard polls."""
+    return service.view(service.get(complaint_id))
+
 
 @router.patch(
     "/{complaint_id}/generated-content",
     response_model=GeneratedContentOut,
 )
-def update_generated_content(
+def save_response_edit(
     user: StaffUser,
     complaint_id: uuid.UUID,
     payload: GeneratedContentUpdate,
-    service: GeneratedContentService = Depends(
-        get_generated_content_service
-    ),
+    service: GeneratedContentService = Depends(get_generated_content_service),
 ):
-    return service.update_draft(
-        complaint_id=complaint_id,
-        draft_response=payload.draft_response,
-    )
+    """FR-23. Save an edit. The generated draft is kept alongside it."""
+    return service.view(service.save_edit(complaint_id, payload.final_response))
 
 
 @router.post(
@@ -226,12 +227,11 @@ def approve_generated_content(
     user: StaffUser,
     complaint_id: uuid.UUID,
     payload: GeneratedContentApprove,
-    service: GeneratedContentService = Depends(
-        get_generated_content_service
-    ),
+    service: GeneratedContentService = Depends(get_generated_content_service),
 ):
-    return service.approve(
+    """FR-22. Approve the response. After this it cannot be edited or regenerated."""
+    return service.view(service.approve(
         complaint_id=complaint_id,
         final_response=payload.final_response,
         approved_by=user.user_id,
-    )
+    ))

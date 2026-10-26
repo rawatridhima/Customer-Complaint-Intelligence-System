@@ -13,7 +13,7 @@ import { errorMessage } from '../api/client';
 import PriorityBadge from '../components/PriorityBadge';
 import ConfidenceBar from '../components/ConfidenceBar';
 import PriorityBreakdown from '../components/PriorityBreakdown';
-import AIField from '../components/AIField';
+import ResponsePanel from '../components/ResponsePanel';
 import { CATEGORIES, formatDateTime, humanize } from '../lib/format';
 
 // A mutation that refreshes everything this page and the inbox show.
@@ -178,7 +178,9 @@ function describe(entry) {
     case 'assigned':
       return d.to ? `assigned to ${d.to}` : 'unassigned';
     case 'response_approved':
-      return `approved the response${d.edited ? ' after editing' : ''}`;
+      return `approved the reply${d.edited ? ' after editing' : ''}${d.fallback ? ' (template)' : ''}`;
+    case 'response_regenerated':
+      return `regenerated the reply in ${d.tone} tone${d.fallback ? ' (AI unavailable, template used)' : ''}`;
     default:
       return humanize(entry.action);
   }
@@ -252,7 +254,15 @@ export default function ComplaintDetail() {
         </div>
 
         <div className="space-y-6">
-          {pending ? (
+          {data.analysis_status === 'failed' ? (
+            <div role="alert" className="border-2 border-amber-500 bg-amber-50 p-3 text-sm text-amber-900">
+              <p className="font-medium">Automatic analysis failed.</p>
+              <p className="mt-1">
+                The classifier could not process this complaint after several tries. Categorise and
+                prioritise it manually, and check the worker logs (<code className="font-mono">docker compose logs worker</code>).
+              </p>
+            </div>
+          ) : pending ? (
             <p className="text-sm text-muted">Analysis in progress. This view updates itself.</p>
           ) : (
             <>
@@ -275,13 +285,7 @@ export default function ComplaintDetail() {
                 <PriorityBreakdown breakdown={p.priority_breakdown} />
               </div>
 
-              <AIField label="Summary" isLoading={false}>
-                <span className="text-muted">Generated content arrives with the LLM stage.</span>
-              </AIField>
-
-              <AIField label="Suggested resolution" isLoading={false}>
-                <span className="text-muted">Generated content arrives with the LLM stage.</span>
-              </AIField>
+              <ResponsePanel complaintId={data.complaint_id} />
             </>
           )}
         </div>

@@ -274,7 +274,9 @@ export default function Inbox() {
                     </Link>
                   </td>
                   <td className="py-3 pr-6 text-muted">
-                    {c.prediction ? humanize(c.prediction.category) : 'analysing…'}
+                    {c.prediction ? humanize(c.prediction.category)
+                      : c.analysis_status === 'failed' ? <span className="text-amber-800">analysis failed</span>
+                      : 'analysing…'}
                     {c.prediction?.needs_review && (
                       <span className="ml-2 font-mono text-xs text-amber-700" title="Low confidence, check the category">
                         review

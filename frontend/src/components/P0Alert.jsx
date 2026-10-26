@@ -47,7 +47,7 @@ export default function P0Alert() {
       className="mb-8 flex items-start gap-4 border-2 border-red-700 bg-red-50 p-4 text-red-900"
     >
       <span aria-hidden="true" className="font-mono">▲▲</span>
-      <div className="flex-1">
+      <div className="min-w-0 flex-1">
         <p className="font-medium">
           {unseen.length === 1
             ? '1 new P0 complaint needs attention'
