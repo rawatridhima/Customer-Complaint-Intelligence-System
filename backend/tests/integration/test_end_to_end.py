@@ -181,3 +181,31 @@ def test_demo_history_can_be_added_and_removed():
     assert add_history() > 300
     assert add_history() == 0          # refuses to add twice
     assert clear_history() > 300
+
+
+def test_worker_start_requeues_complaints_that_were_never_analysed(client, monkeypatch):
+    """NFR-09: if Redis was down at submission, the complaint is saved but
+    never queued. The worker finds it on start-up and queues it."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.core.database import get_session_factory
+    from app.models.complaint import Complaint
+    from app.workers import tasks
+
+    stuck = client.post("/api/v1/complaints", json={
+        "text": "Submitted while the queue was down and never analysed.",
+        "customer_ref": f"STUCK-{uuid.uuid4().hex[:6]}"}).json()["complaint_id"]
+    fresh = client.post("/api/v1/complaints", json={
+        "text": "Submitted a moment ago, its task is surely still queued.",
+        "customer_ref": f"FRESH-{uuid.uuid4().hex[:6]}"}).json()["complaint_id"]
+    db = get_session_factory()()
+    db.get(Complaint, uuid.UUID(stuck)).submitted_at = datetime.now(UTC) - timedelta(hours=1)
+    db.commit()
+    db.close()
+
+    queued = []
+    monkeypatch.setattr(tasks.analyse_complaint, "delay", lambda cid: queued.append(cid))
+    requeued = tasks.requeue_stale_analyses()
+
+    assert stuck in requeued and stuck in queued
+    assert fresh not in requeued   # recent ones are left to their own task

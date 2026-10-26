@@ -195,6 +195,29 @@ Leave `LLM_PROVIDER` empty to run without an LLM.
 
 ---
 
+## Deploying
+
+`docker-compose.prod.yml` runs the whole system behind one web server (Caddy)
+on ports 80/443, with automatic HTTPS when given a domain name, secrets checked
+at startup, and automatic restarts. It works on a cloud server or on a laptop.
+Step-by-step guide, including a free cloud server: **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
+
+```bash
+make prod-up            # build and start in production mode
+make prod-ps            # status
+make prod-backup        # database backup to ./backups
+```
+
+**Before a demo**, generate AI replies ahead of time so nothing depends on the
+LLM being available on the day: `make pregenerate n=10` (or `make
+prod-pregenerate`).
+
+**Resilience.** Submitting a complaint answers in well under a second even if
+Redis is down; the complaint is saved, and the worker re-queues anything left
+unanalysed when it starts.
+
+---
+
 ## Analytics and manager tools
 
 Managers and admins get three extra pages; agents do not see them, and the
@@ -264,7 +287,9 @@ retrying.
 | Complaint list with filters, sorting and pagination | Working |
 | Status changes, bulk status, category override, assignment | Working |
 | Audit trail per complaint | Working |
-| CI: unit, integration and end-to-end tests, 90% coverage | Working |
+| CI: unit, integration and end-to-end tests, 89% coverage | Working |
+| Production deployment: Caddy + HTTPS, startup secret checks, backups | Working |
+| Pre-generated AI replies for demos; recovery of unqueued complaints | Working |
 | P0 alert banner | Working |
 | React dashboard with polling | Working |
 | Category classification | Working — DistilBERT, test macro-F1 0.866 |

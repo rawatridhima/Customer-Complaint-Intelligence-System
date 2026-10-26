@@ -1,0 +1,46 @@
+# Production web server: serves the built React app and forwards API calls to
+# FastAPI, so the browser sees one origin (no CORS needed).
+#
+# SITE_ADDRESS decides how it listens:
+#   :80                      plain HTTP, any hostname (laptop, or a VM by IP)
+#   complaints.example.com   HTTPS with a free Let's Encrypt certificate,
+#                            obtained and renewed automatically
+{$SITE_ADDRESS::80} {
+	encode zstd gzip
+
+	# The API, its interactive docs and the health check go to FastAPI.
+	@backend path /api/* /docs /docs/* /redoc /openapi.json /health
+	handle @backend {
+		reverse_proxy api:8000
+	}
+
+	# Built JS/CSS. File names contain a content hash, so they can be cached
+	# forever; a missing one is a real 404, never the HTML page.
+	handle /assets/* {
+		root * /srv
+		@exists file
+		header @exists Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	# Everything else is the React app. Unknown paths serve index.html, so
+	# client-side routes like /complaints/<id> survive a page refresh.
+	# no-cache makes browsers pick up a new deploy straight away.
+	handle {
+		root * /srv
+		header Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	log {
+		format console
+	}
+}

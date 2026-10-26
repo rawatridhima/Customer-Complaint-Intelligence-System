@@ -1,6 +1,9 @@
 import uuid
 
 from sqlalchemy import select
+
+from app.models.enums import ComplaintStatus
+from app.models.prediction import Prediction
 from sqlalchemy.orm import Session
 
 from app.models.complaint import Complaint
@@ -50,6 +53,25 @@ class GeneratedContentRepository:
             .limit(1)
         )
         return self._db.execute(stmt).scalar_one_or_none()
+
+    def complaints_needing_content(self, limit: int, include_demo: bool = False) -> list:
+        """Analysed, unresolved complaints with no AI reply yet, or only the
+        fallback template, most urgent first."""
+        stmt = (
+            select(Complaint.complaint_id)
+            .join(Prediction, Prediction.complaint_id == Complaint.complaint_id)
+            .outerjoin(GeneratedContent, GeneratedContent.complaint_id == Complaint.complaint_id)
+            .where(
+                Complaint.status != ComplaintStatus.RESOLVED,
+                (GeneratedContent.content_id.is_(None))
+                | (GeneratedContent.is_fallback.is_(True) & GeneratedContent.approved_at.is_(None)),
+            )
+            .order_by(Prediction.priority_score.desc(), Complaint.submitted_at.desc())
+            .limit(limit)
+        )
+        if not include_demo:
+            stmt = stmt.where(Complaint.channel != "demo")
+        return list(self._db.execute(stmt).scalars().all())
 
     def update(self, content: GeneratedContent) -> GeneratedContent:
         self._db.add(content)

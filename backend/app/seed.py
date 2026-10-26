@@ -149,7 +149,18 @@ def seed_knowledge_base(db) -> None:
 
 
 def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Load demo data.")
+    parser.add_argument("--knowledge-base-only", action="store_true",
+                        help="only the knowledge base articles: no demo accounts or complaints")
+    args = parser.parse_args()
+
     db = get_session_factory()()
+    if args.knowledge_base_only:
+        seed_knowledge_base(db)
+        db.close()
+        return
     seed_users(db)
     # Articles before complaints, so the first generated resolutions can cite them.
     seed_knowledge_base(db)

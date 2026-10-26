@@ -129,6 +129,18 @@ class ComplaintRepository:
         )
         return {c.complaint_id: c for c in self._db.execute(stmt).scalars().all()}
 
+    def stale_analysis_ids(self, submitted_before: datetime) -> Sequence[uuid.UUID]:
+        """Complaints still waiting for analysis long after they arrived."""
+        stmt = (
+            select(Complaint.complaint_id)
+            .where(
+                Complaint.analysis_status.in_([AnalysisStatus.PENDING, AnalysisStatus.PROCESSING]),
+                Complaint.submitted_at < submitted_before,
+            )
+            .order_by(Complaint.submitted_at)
+        )
+        return list(self._db.execute(stmt).scalars().all())
+
     def open_with_predictions(self) -> Sequence[Complaint]:
         stmt = (
             select(Complaint)

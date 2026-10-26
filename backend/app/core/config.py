@@ -5,6 +5,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    # "production" turns on the startup safety checks in app/core/production.py.
+    ENVIRONMENT: str = "development"
+    # Browser origins allowed to call the API directly, comma-separated. Not
+    # needed in production, where Caddy serves the app and API on one origin.
+    CORS_ORIGINS: str = "http://localhost:5173"
+
     DATABASE_URL: str = "postgresql+psycopg://cis:cis_password@db:5432/cis"
     REDIS_URL: str = "redis://redis:6379/0"
 
@@ -39,6 +45,14 @@ class Settings(BaseSettings):
     PRIORITY_W_REPEAT: float = 0.15
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @property
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT.strip().lower() == "production"
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
 
 
 settings = Settings()

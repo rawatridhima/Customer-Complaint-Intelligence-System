@@ -12,7 +12,9 @@ from app.services.classifier_service import classifier, sentiment
 from app.services.priority_service import PriorityService
 from app.services.settings_service import SettingsService
 from app.workers.celery_app import celery_app
-from celery.signals import worker_process_init
+from datetime import UTC, datetime, timedelta
+
+from celery.signals import worker_process_init, worker_ready
 
 
 @worker_process_init.connect
@@ -24,6 +26,35 @@ def _warm_models(**_kwargs) -> None:
     sentiment.warm()
 
 logger = logging.getLogger(__name__)
+
+STALE_AFTER = timedelta(minutes=2)
+
+
+@worker_ready.connect
+def _requeue_stale(**_kwargs) -> None:
+    """Recover complaints whose analysis task was never run.
+
+    That happens if Redis was down when the complaint was submitted, or lost
+    its queue on a restart. Re-queuing is safe: analyse_complaint skips any
+    complaint that already has a prediction. Only the local ML stage is
+    re-queued, never the LLM, so a restart cannot spend LLM quota.
+    """
+    try:
+        requeue_stale_analyses()
+    except Exception:  # noqa: BLE001 - recovery must never stop the worker
+        logger.exception("could not re-queue stale complaints")
+
+
+def requeue_stale_analyses(now: datetime | None = None) -> list[str]:
+    cutoff = (now or datetime.now(UTC)) - STALE_AFTER
+    with session_scope() as db:
+        ids = ComplaintRepository(db).stale_analysis_ids(cutoff)
+    for cid in ids:
+        analyse_complaint.delay(str(cid))
+    if ids:
+        log_event(logger, "requeued_stale_analyses", count=len(ids))
+    return [str(c) for c in ids]
+
 
 @celery_app.task(
     name="tasks.analyse_complaint",
