@@ -35,6 +35,8 @@ services:
       - ./backend:/code
       # Read-only, for the model's saved test results on the analytics page.
       - ./ml/models:/models:ro
+      # Read-only, for make test: the ML contract tests import ml/src.
+      - ./ml/src:/ml/src:ro
     ports:
       - "8000:8000"
     depends_on:
